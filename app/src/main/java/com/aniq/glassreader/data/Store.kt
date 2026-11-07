@@ -67,7 +67,10 @@ object Store {
         if (initialized) return
         app = context.applicationContext
         prefs = app.getSharedPreferences("reader", Context.MODE_PRIVATE)
-        _books.value = readArray("library.json").map { Book.fromJson(it) }
+        _books.value = readArray("library.json").map { Book.fromJson(it) }.map { b ->
+            val (t, a) = Titles.split(Titles.clean(b.title), b.author)
+            b.copy(title = t, author = a)
+        }
         _highlights.value = readArray("highlights.json").map { Highlight.fromJson(it) }
         val d = ReaderSettings()
         _settings.value = ReaderSettings(
@@ -163,9 +166,11 @@ object Store {
                 Book(id = id, title = parsed.title, author = parsed.author, format = format,
                     hasCover = hasCover, totalParas = parsed.content.paras.size)
             }
-            _books.value = listOf(book) + _books.value
+            val (t, a) = Titles.split(Titles.clean(book.title), book.author)
+            val clean = book.copy(title = t, author = a)
+            _books.value = listOf(clean) + _books.value
             scheduleSave()
-            book
+            clean
         }
     }
 
