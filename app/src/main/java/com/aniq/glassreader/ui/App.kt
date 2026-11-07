@@ -274,7 +274,7 @@ private fun Home(
         }
 
         AnimatedVisibility(
-            visible = barVisible && !settingsOpen,
+            visible = barVisible && !settingsOpen && Overlays.open == 0,
             enter = slideInVertically(spring(0.8f, 500f)) { it * 2 } + fadeIn(tween(160)),
             exit = slideOutVertically(spring(0.9f, 500f)) { it * 2 } + fadeOut(tween(160)),
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 10.dp),

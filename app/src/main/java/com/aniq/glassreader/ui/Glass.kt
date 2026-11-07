@@ -68,6 +68,17 @@ val Inter = FontFamily(
 
 // ---------------- Palette (monochrome) ----------------
 
+/** Counts open full-screen layers (exhibit, sheets) so the tab bar can step aside. */
+object Overlays { var open by mutableStateOf(0) }
+
+@Composable
+fun HideTabBarWhile(active: Boolean) {
+    androidx.compose.runtime.DisposableEffect(active) {
+        if (active) Overlays.open++
+        onDispose { if (active) Overlays.open-- }
+    }
+}
+
 /** App-wide light/dark switch, readable from composition and draw code alike. */
 object UiMode { var dark by mutableStateOf(true) }
 

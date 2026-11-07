@@ -222,6 +222,7 @@ fun SheetAction(title: String, hint: String?, color: Color = Primary, haptic: Ha
 /** Bottom action sheet in liquid glass. */
 @Composable
 fun ActionSheet(visible: Boolean, haze: HazeState, onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    HideTabBarWhile(visible)
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     Box(Modifier.fillMaxSize()) {
         AnimatedVisibility(visible, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {

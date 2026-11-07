@@ -235,6 +235,7 @@ private fun Exhibit(
     onOpen: (Highlight) -> Unit,
 ) {
     BackHandler(onBack = onClose)
+    HideTabBarWhile(true)
     val haze = remember { HazeState() }
     val pager = rememberPagerState(initialPage = start) { list.size }
     val haptic = LocalHapticFeedback.current
@@ -286,7 +287,7 @@ private fun Exhibit(
         }
 
         // close
-        GlassCircle(Line.Close, "Close", haze, size = 42.dp, modifier = Modifier.align(Alignment.TopEnd).padding(top = top + 10.dp, end = 16.dp), onClick = onClose)
+        GlassCircle(Line.Close, "Close", haze, size = 42.dp, glassTint = Color(0xFF1C1C1E).copy(alpha = 0.5f), base = Color.Black, light = false, tint = Color.White, modifier = Modifier.align(Alignment.TopEnd).padding(top = top + 10.dp, end = 16.dp), onClick = onClose)
 
         // counter
         Text(
@@ -298,12 +299,12 @@ private fun Exhibit(
         val cur = list.getOrNull(pager.currentPage)
         Row(
             Modifier.align(Alignment.BottomCenter).padding(bottom = bottom + 18.dp)
-                .glass(haze, RoundedCornerShape(50), floating = true).padding(horizontal = 8.dp, vertical = 6.dp),
+                .glass(haze, RoundedCornerShape(50), tint = Color(0xFF1C1C1E).copy(alpha = 0.5f), base = Color.Black, light = false).padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ExhibitAction(Line.Open, "Read") { cur?.let(onOpen) }
             ExhibitAction(if (cur?.favorite == true) Line.HeartFill else Line.Heart, "Love",
-                tint = if (cur?.favorite == true) Color(0xFFFF375F) else Primary) {
+                tint = if (cur?.favorite == true) Color(0xFFFF375F) else Color.White) {
                 cur?.let { Store.updateHighlight(it.id) { x -> x.copy(favorite = !x.favorite) } }
                 haptics.play(if (cur?.favorite == true) Haptic.ToggleOff else Haptic.Confirm)
             }
@@ -314,13 +315,13 @@ private fun Exhibit(
 }
 
 @Composable
-private fun ExhibitAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color = Primary, onClick: () -> Unit) {
+private fun ExhibitAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color = Color.White, onClick: () -> Unit) {
     Column(
         Modifier.width(66.dp).bouncyClick(pressedScale = 0.85f, onClick = onClick).padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Icon(icon, label, tint = tint, modifier = Modifier.size(22.dp))
-        Text(label, color = Secondary, fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 3.dp))
+        Text(label, color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 3.dp))
     }
 }
 
