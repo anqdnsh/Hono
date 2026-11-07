@@ -47,6 +47,11 @@ object Store {
     private val _settings = MutableStateFlow(ReaderSettings())
     val settings: StateFlow<ReaderSettings> = _settings
 
+    private val _wallpaper = MutableStateFlow<Bitmap?>(null)
+    val wallpaper: StateFlow<Bitmap?> = _wallpaper
+    private val _wallpaperBlur = MutableStateFlow<Bitmap?>(null)
+    val wallpaperBlur: StateFlow<Bitmap?> = _wallpaperBlur
+
     private val bitmapCache = object : LruCache<String, Bitmap>(16 * 1024 * 1024) {
         override fun sizeOf(key: String, value: Bitmap) = value.allocationByteCount
     }
@@ -74,8 +79,15 @@ object Store {
             margin = prefs.getInt("margin", d.margin),
             grain = prefs.getBoolean("grain", d.grain),
             mono = prefs.getBoolean("mono", d.mono),
+            wallDim = prefs.getFloat("wallDim", d.wallDim),
+            wallInReader = prefs.getBoolean("wallReader", d.wallInReader),
         )
         initialized = true
+        io.launch {
+            val f = File(app.filesDir, "wallpaper.jpg"); val b = File(app.filesDir, "wallpaper_blur.jpg")
+            if (f.exists()) _wallpaper.value = BitmapFactory.decodeFile(f.path)
+            if (b.exists()) _wallpaperBlur.value = BitmapFactory.decodeFile(b.path)
+        }
     }
 
     private fun readArray(name: String): List<org.json.JSONObject> {
@@ -325,6 +337,39 @@ object Store {
         }
     }
 
+    // ---------- Wallpaper ----------
+
+    suspend fun setWallpaper(uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val bytes = app.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+            var bmp = decodeSampled(bytes, 2200) ?: return@runCatching false
+            // honour EXIF rotation from phone cameras
+            val rot = runCatching {
+                androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(bytes)).rotationDegrees
+            }.getOrDefault(0)
+            if (rot != 0) {
+                val m = android.graphics.Matrix().apply { postRotate(rot.toFloat()) }
+                bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+            }
+            // cheap, smooth blur: shrink hard, then scale back up with filtering
+            val sw = 36; val sh = (36f * bmp.height / bmp.width).toInt().coerceAtLeast(1)
+            val tiny = Bitmap.createScaledBitmap(bmp, sw, sh, true)
+            val mid = Bitmap.createScaledBitmap(tiny, sw * 4, sh * 4, true)
+            val blur = Bitmap.createScaledBitmap(mid, sw * 12, sh * 12, true)
+            File(app.filesDir, "wallpaper.jpg").outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+            File(app.filesDir, "wallpaper_blur.jpg").outputStream().use { blur.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+            _wallpaper.value = bmp
+            _wallpaperBlur.value = blur
+            true
+        }.getOrDefault(false)
+    }
+
+    fun clearWallpaper() {
+        _wallpaper.value = null; _wallpaperBlur.value = null
+        io.launch { File(app.filesDir, "wallpaper.jpg").delete(); File(app.filesDir, "wallpaper_blur.jpg").delete() }
+        updateSettings { it.copy(wallInReader = false) }
+    }
+
     // ---------- Settings ----------
 
     fun updateSettings(block: (ReaderSettings) -> ReaderSettings) {
@@ -335,6 +380,7 @@ object Store {
             .putInt("theme2", s.theme).putBoolean("serif2", s.serif)
             .putBoolean("justify", s.justify).putInt("margin", s.margin)
             .putBoolean("grain", s.grain).putBoolean("mono", s.mono)
+            .putFloat("wallDim", s.wallDim).putBoolean("wallReader", s.wallInReader)
             .apply()
     }
 

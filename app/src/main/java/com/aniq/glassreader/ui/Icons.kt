@@ -47,5 +47,7 @@ object Line {
     }
     val Share by lazy { stroke("share", "M12,3.8V14.5", "M8.2,7.6L12,3.8L15.8,7.6", "M7.5,10.5H6V20H18V10.5H16.5") }
     val Open by lazy { stroke("open", "M5,6.5C7.5,5.2 10,5.2 12,6.8C14,5.2 16.5,5.2 19,6.5V18.5C16.5,17.2 14,17.2 12,18.8C10,17.2 7.5,17.2 5,18.5Z", "M12,6.8V18.8") }
+    val Sliders by lazy { stroke("sliders", "M4,7.5H11", "M15,7.5H20", "M13,5.2V9.8", "M4,16.5H7", "M11,16.5H20", "M9,14.2V18.8") }
+    val Photo by lazy { stroke("photo", "M4.5,5.5H19.5V18.5H4.5Z", "M4.5,15.5L9,11L13,15L15.5,12.5L19.5,16.5", "M15.5,8.6H15.6") }
     val Paragraph by lazy { stroke("para", "M4.5,6H19.5", "M4.5,10H19.5", "M4.5,14H19.5", "M4.5,18H13") }
 }

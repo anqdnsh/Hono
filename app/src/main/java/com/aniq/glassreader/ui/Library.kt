@@ -68,7 +68,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-fun LibraryScreen(haze: HazeState, importing: Boolean, onOpen: (String) -> Unit, onExport: (ExportKind, Book?) -> Unit) {
+fun LibraryScreen(
+    haze: HazeState,
+    importing: Boolean,
+    onOpen: (String) -> Unit,
+    onExport: (ExportKind, Book?) -> Unit,
+    onPickWallpaper: () -> Unit,
+) {
+    var appearance by remember { mutableStateOf(false) }
+    val settings by Store.settings.collectAsState()
+    val hasWall = Store.wallpaper.collectAsState().value != null
     val books by Store.books.collectAsState()
     val all by Store.highlights.collectAsState()
     val last = remember(books) { books.filter { it.lastOpened > 0 }.maxByOrNull { it.lastOpened } }
@@ -103,7 +112,11 @@ fun LibraryScreen(haze: HazeState, importing: Boolean, onOpen: (String) -> Unit,
             }
         }
 
-        LargeTitle("Library", haze, subtitle = if (books.isEmpty()) null else "${books.size} ${if (books.size == 1) "book" else "books"}")
+        LargeTitle(
+            "Library", haze,
+            subtitle = if (books.isEmpty()) null else "${books.size} ${if (books.size == 1) "book" else "books"}",
+            trailing = { GlassCircle(Line.Sliders, "Appearance", haze, size = 42.dp) { appearance = true } },
+        )
 
         AnimatedVisibility(
             visible = importing,
@@ -117,6 +130,32 @@ fun LibraryScreen(haze: HazeState, importing: Boolean, onOpen: (String) -> Unit,
             )
         }
 
+        ActionSheet(visible = appearance, haze = haze, onDismiss = { appearance = false }) {
+            val ui = ReaderThemes[4] // graphite text colours for the controls
+            Text("Appearance", color = Primary, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp))
+            Spacer(Modifier.height(12.dp))
+            SheetAction(if (hasWall) "Change wallpaper" else "Choose wallpaper from gallery", null) { appearance = false; onPickWallpaper() }
+            if (hasWall) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
+                    LabeledSlider("Dim wallpaper", "${(settings.wallDim * 100).toInt()}%", settings.wallDim, 0f..0.9f, ui) { v ->
+                        Store.updateSettings { it.copy(wallDim = v) }
+                    }
+                    ToggleRow("Use while reading", "Blurred wallpaper behind your pages", settings.wallInReader, ui) { v ->
+                        Store.updateSettings { it.copy(wallInReader = v) }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                SheetAction("Remove wallpaper", null, Color(0xFFFF453A), haptic = Haptic.Reject) { Store.clearWallpaper() }
+            }
+            Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
+                ToggleRow("Black & White", "No colour anywhere, pure black reading", settings.mono, ui) { v ->
+                    Store.updateSettings { it.copy(mono = v) }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
         ActionSheet(visible = menuFor != null, haze = haze, onDismiss = { menuFor = null }) {
             var shown by remember { mutableStateOf<Book?>(null) }
             menuFor?.let { shown = it }
@@ -128,17 +167,17 @@ fun LibraryScreen(haze: HazeState, importing: Boolean, onOpen: (String) -> Unit,
             SheetAction("Export highlights", ".md") { b?.let { onExport(ExportKind.BookHighlights, it) }; menuFor = null }
             SheetAction("Export book file", ".${b?.format ?: ""}") { b?.let { onExport(ExportKind.BookFile, it) }; menuFor = null }
             SheetAction("Export book + highlights", ".zip") { b?.let { onExport(ExportKind.Bundle, it) }; menuFor = null }
-            SheetAction("Delete from library", null, Color(0xFFFF453A)) { b?.let { Store.delete(it.id) }; menuFor = null }
+            SheetAction("Delete from library", null, Color(0xFFFF453A), haptic = Haptic.Reject) { b?.let { Store.delete(it.id) }; menuFor = null }
         }
     }
 }
 
 @Composable
-fun SheetAction(title: String, hint: String?, color: Color = Primary, onClick: () -> Unit) {
+fun SheetAction(title: String, hint: String?, color: Color = Primary, haptic: Haptic = Haptic.Tap, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .bouncyClick(pressedScale = 0.97f, onClick = onClick)
+            .bouncyClick(pressedScale = 0.97f, haptic = haptic, onClick = onClick)
             .clip(RoundedCornerShape(18.dp))
             .background(Color.White.copy(alpha = 0.06f))
             .padding(horizontal = 18.dp, vertical = 15.dp),

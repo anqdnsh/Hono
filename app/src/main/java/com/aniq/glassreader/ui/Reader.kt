@@ -240,7 +240,7 @@ fun ReaderScreen(bookId: String, jumpPara: Int?, jumpChar: Int = 0, onBack: () -
     val theme = themeFor(settings)
     val bg by animateColorAsState(theme.bg, tween(350), label = "bg")
     if (book.isPdf) {
-        Box(Modifier.fillMaxSize().background(bg).paper(settings.grain, theme.light)) {
+        Box(Modifier.fillMaxSize().background(bg).readerBackdrop(theme).paper(settings.grain, theme.light)) {
             PdfReader(book, jumpPara, settings, theme, onBack)
         }
         return
@@ -252,7 +252,7 @@ fun ReaderScreen(bookId: String, jumpPara: Int?, jumpChar: Int = 0, onBack: () -
     LaunchedEffect(bookId) { Store.markOpened(bookId) }
     BackHandler(onBack = onBack)
 
-    Box(Modifier.fillMaxSize().background(bg).paper(settings.grain, theme.light)) {
+    Box(Modifier.fillMaxSize().background(bg).readerBackdrop(theme).paper(settings.grain, theme.light)) {
         val c = content
         if (c != null) ReaderBody(book, c, jumpPara, jumpChar, settings, theme, onBack)
     }
@@ -272,6 +272,7 @@ private fun ReaderBody(
     val haze = remember { HazeState() }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
+    val haptics = rememberHaptics()
     val clipboard = LocalClipboardManager.current
     val density = LocalDensity.current
     val fontResolver = LocalFontFamilyResolver.current
@@ -410,6 +411,7 @@ private fun ReaderBody(
             val target = neighbour(dir)
             chrome = false
             if (target == null) {
+                haptics.play(Haptic.Reject)
                 turnJob = scope.launch {
                     if (!fromDrag) offset.animateTo(-dir * 36f, spring(0.6f, 900f))
                     offset.animateTo(0f, spring(0.55f, 500f))
@@ -417,6 +419,7 @@ private fun ReaderBody(
                 return
             }
             pendingAnchor = target.start
+            if (!fromDrag) haptics.play(Haptic.PageTurn)
             turnJob = scope.launch {
                 if (!fromDrag && abs(offset.value) < 1f) offset.snapTo(0f)
                 offset.animateTo(-dir * fullW, turnSpring)
@@ -453,7 +456,7 @@ private fun ReaderBody(
                     chapter = c.chapterAt(s.para)?.title ?: "", favorite = overlaps.any { it.favorite },
                 )
             )
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            haptics.play(Haptic.Confirm)
             selection = null
             toast = "Saved to Highlights"
         }
@@ -471,7 +474,7 @@ private fun ReaderBody(
                                 chrome -> chrome = false
                                 pos.x < size.width * 0.3f -> turnRef(-1, false)
                                 pos.x > size.width * 0.7f -> turnRef(1, false)
-                                else -> chrome = true
+                                else -> { chrome = true; haptics.play(Haptic.Tick) }
                             }
                         },
                         onLongPress = { /* long-press on text = highlight (handled by the paragraph) */ },
@@ -479,9 +482,10 @@ private fun ReaderBody(
                 }
                 .pointerInput(fullW) {
                     val tracker = VelocityTracker()
+                    var armed = false
                     detectHorizontalDragGestures(
                         onDragStart = {
-                            tracker.resetTracking()
+                            tracker.resetTracking(); armed = false
                             pendingAnchor?.let { anchor = it; pendingAnchor = null }
                             turnJob?.cancel()
                             selection = null; active = null; chrome = false
@@ -503,7 +507,10 @@ private fun ReaderBody(
                         tracker.addPosition(change.uptimeMillis, change.position)
                         val o = offset.value
                         val blocked = (o + dx < 0 && neighbourRef(1) == null) || (o + dx > 0 && neighbourRef(-1) == null)
-                        scope.launch { offset.snapTo(o + if (blocked) dx * 0.25f else dx) }
+                        val nextO = o + if (blocked) dx * 0.25f else dx
+                        val past = !blocked && abs(nextO) > fullW * 0.22f
+                        if (past != armed) { armed = past; if (past) haptics.play(Haptic.Threshold) }
+                        scope.launch { offset.snapTo(nextO) }
                     }
                 },
         ) {
@@ -648,10 +655,10 @@ private fun ReaderBody(
             BarIcon(if (h?.favorite == true) Line.HeartFill else Line.Heart, theme,
                 tint = if (h?.favorite == true) Color(0xFFFF375F) else theme.text) {
                 h?.let { Store.updateHighlight(it.id) { x -> x.copy(favorite = !x.favorite) } }
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                haptics.play(if (h?.favorite == true) Haptic.ToggleOff else Haptic.Confirm)
             }
             BarIcon(Line.Copy, theme) { h?.let { clipboard.setText(AnnotatedString(it.text)) }; active = null; toast = "Copied" }
-            BarIcon(Line.Trash, theme) { h?.let { Store.removeHighlight(it.id) }; active = null; toast = "Highlight removed" }
+            BarIcon(Line.Trash, theme) { h?.let { Store.removeHighlight(it.id) }; haptics.play(Haptic.Reject); active = null; toast = "Highlight removed" }
         }
 
         // ---- sheets ----
@@ -771,7 +778,7 @@ private fun ParaText(
     val hl by rememberUpdatedState(highlights)
     val tapHl by rememberUpdatedState(onTapHighlight)
     val select by rememberUpdatedState(onSelect)
-    val haptic = LocalHapticFeedback.current
+    val haptics = rememberHaptics()
     val selAlpha by animateFloatAsState(if (selection != null) 1f else 0f, tween(140), label = "sel")
 
     Text(
@@ -815,7 +822,7 @@ private fun ParaText(
                             anchor = wordRange(text, l.getOffsetForPosition(pos))
                             moved = false
                             lastStart = anchor.first; lastEnd = anchor.last + 1
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptics.play(Haptic.LongPress)
                             select(Sel(index, anchor.first, anchor.last + 1), true)
                         }
                     },
@@ -827,12 +834,13 @@ private fun ParaText(
                             val e = max(anchor.last + 1, w.last + 1)
                             if (s != lastStart || e != lastEnd) {
                                 moved = true; lastStart = s; lastEnd = e
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                haptics.play(Haptic.TextMove)
                                 select(Sel(index, s, e), true)
                             }
                         }
                     },
                     onDragEnd = {
+                        haptics.play(Haptic.GestureEnd)
                         if (!moved) {
                             val r = sentenceRange(text, anchor.first)
                             select(Sel(index, r.first, r.last + 1), false)
@@ -890,7 +898,7 @@ internal fun ColorDot(color: Color, selected: Boolean, onClick: () -> Unit) {
         Modifier
             .padding(horizontal = 4.dp)
             .size(26.dp)
-            .bouncyClick(pressedScale = 0.8f, onClick = onClick)
+            .bouncyClick(pressedScale = 0.8f, haptic = null, onClick = onClick)
             .graphicsLayer { scaleX = s; scaleY = s }
             .clip(CircleShape)
             .background(color)
@@ -1024,7 +1032,7 @@ internal fun SettingsSheet(s: ReaderSettings, theme: ReaderTheme, pdf: Boolean =
                     Box(
                         Modifier
                             .size(width = 54.dp, height = 46.dp)
-                            .bouncyClick(pressedScale = 0.88f) { Store.updateSettings { it.copy(theme = i, mono = false) } }
+                            .bouncyClick(pressedScale = 0.88f, haptic = Haptic.Tick) { Store.updateSettings { it.copy(theme = i, mono = false) } }
                             .graphicsLayer { scaleX = scale; scaleY = scale }
                             .clip(RoundedCornerShape(14.dp))
                             .background(t.bg)
@@ -1039,6 +1047,7 @@ internal fun SettingsSheet(s: ReaderSettings, theme: ReaderTheme, pdf: Boolean =
         }
         Spacer(Modifier.height(14.dp))
         ToggleRow("Paper texture", "Fine grain and fibres, like real paper", s.grain, theme) { v -> Store.updateSettings { it.copy(grain = v) } }
+        if (Wall.blurred != null) ToggleRow("Wallpaper background", "Read over a softly blurred version of your wallpaper", s.wallInReader, theme) { v -> Store.updateSettings { it.copy(wallInReader = v) } }
         ToggleRow("Black & White", "No colour, pure black screen. Easiest on battery", s.mono, theme) { v -> Store.updateSettings { it.copy(mono = v) } }
         if (!pdf) {
             Spacer(Modifier.height(6.dp))
@@ -1055,9 +1064,9 @@ internal fun SettingsSheet(s: ReaderSettings, theme: ReaderTheme, pdf: Boolean =
 }
 
 @Composable
-private fun ToggleRow(title: String, subtitle: String, on: Boolean, theme: ReaderTheme, onChange: (Boolean) -> Unit) {
+internal fun ToggleRow(title: String, subtitle: String, on: Boolean, theme: ReaderTheme, onChange: (Boolean) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().bouncyClick(pressedScale = 0.98f) { onChange(!on) }.padding(vertical = 8.dp),
+        Modifier.fillMaxWidth().bouncyClick(pressedScale = 0.98f, haptic = if (on) Haptic.ToggleOff else Haptic.ToggleOn) { onChange(!on) }.padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {

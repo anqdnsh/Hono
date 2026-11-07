@@ -97,6 +97,8 @@ data class ReaderSettings(
     val margin: Int = 26,
     val grain: Boolean = false,  // paper texture
     val mono: Boolean = false,   // black & white mode
+    val wallDim: Float = 0.45f,  // darkening over a custom wallpaper
+    val wallInReader: Boolean = false,
 )
 
 /** Para styles are packed triples: start, end, type (1 = italic, 2 = bold). */

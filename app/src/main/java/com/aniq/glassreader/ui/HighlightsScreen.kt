@@ -236,6 +236,11 @@ private fun Exhibit(
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LaunchedEffect(list.size) { if (list.isEmpty()) onClose() }
+    val haptics = rememberHaptics()
+    LaunchedEffect(pager) {
+        var first = true
+        androidx.compose.runtime.snapshotFlow { pager.currentPage }.collect { if (!first) haptics.play(Haptic.PageTurn); first = false }
+    }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         HorizontalPager(pager, Modifier.fillMaxSize().hazeSource(haze), beyondViewportPageCount = 1) { i ->
@@ -293,10 +298,10 @@ private fun Exhibit(
             ExhibitAction(if (cur?.favorite == true) Line.HeartFill else Line.Heart, "Favourite",
                 tint = if (cur?.favorite == true) Color(0xFFFF375F) else Primary) {
                 cur?.let { Store.updateHighlight(it.id) { x -> x.copy(favorite = !x.favorite) } }
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                haptics.play(if (cur?.favorite == true) Haptic.ToggleOff else Haptic.Confirm)
             }
-            if (cur?.isClip == false) ExhibitAction(Line.Copy, "Copy") { clipboard.setText(AnnotatedString(cur.text)) }
-            ExhibitAction(Line.Trash, "Delete") { cur?.let { Store.removeHighlight(it.id) } }
+            if (cur?.isClip == false) ExhibitAction(Line.Copy, "Copy") { clipboard.setText(AnnotatedString(cur.text)); haptics.play(Haptic.Confirm) }
+            ExhibitAction(Line.Trash, "Delete") { cur?.let { Store.removeHighlight(it.id) }; haptics.play(Haptic.Reject) }
         }
     }
 }
@@ -330,7 +335,7 @@ fun Segmented(
         Row(Modifier.fillMaxSize()) {
             options.forEachIndexed { i, s ->
                 Box(
-                    Modifier.weight(1f).fillMaxHeight().bouncyClick(pressedScale = 0.94f) { onSelect(i) },
+                    Modifier.weight(1f).fillMaxHeight().bouncyClick(pressedScale = 0.94f, haptic = Haptic.Tick) { onSelect(i) },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(s, color = if (i == selected) fg else fg.copy(alpha = 0.6f), fontFamily = Inter, fontSize = 13.sp,

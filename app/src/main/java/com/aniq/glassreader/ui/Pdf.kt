@@ -165,6 +165,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     val haze = remember { HazeState() }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
+    val haptics = rememberHaptics()
     val density = LocalDensity.current
     val count = d.count
     var page by remember { mutableIntStateOf((jumpPage ?: book.progressIndex).coerceIn(0, count - 1)) }
@@ -247,6 +248,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             chrome = false
             val target = page + dir
             if (target !in 0 until count) {
+                haptics.play(Haptic.Reject)
                 turnJob = scope.launch {
                     if (!fromDrag) offset.animateTo(-dir * 36f, spring(0.6f, 900f))
                     offset.animateTo(0f, spring(0.55f, 500f))
@@ -254,6 +256,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                 return
             }
             pending = target
+            if (!fromDrag) haptics.play(Haptic.PageTurn)
             turnJob = scope.launch {
                 offset.animateTo(-dir * fullW, spring(1f, 420f))
                 page = target; pending = null
@@ -291,11 +294,11 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                             } else null
                             when {
                                 clearTransient() -> {}
-                                hit != null -> active = hit
+                                hit != null -> { active = hit; haptics.play(Haptic.Tick) }
                                 chrome -> chrome = false
                                 pos.x < size.width * 0.3f -> turnRef(-1, false)
                                 pos.x > size.width * 0.7f -> turnRef(1, false)
-                                else -> chrome = true
+                                else -> { chrome = true; haptics.play(Haptic.Tick) }
                             }
                         },
                         onLongPress = { },
@@ -303,9 +306,10 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                 }
                 .pointerInput(fullW) {
                     val tracker = VelocityTracker()
+                    var armed = false
                     detectHorizontalDragGestures(
                         onDragStart = {
-                            tracker.resetTracking()
+                            tracker.resetTracking(); armed = false
                             pending?.let { page = it; pending = null }
                             turnJob?.cancel(); region = null; active = null; chrome = false
                         },
@@ -322,7 +326,10 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                         tracker.addPosition(change.uptimeMillis, change.position)
                         val o = offset.value
                         val blocked = (o + dx < 0 && page + 1 >= count) || (o + dx > 0 && page - 1 < 0)
-                        scope.launch { offset.snapTo(o + if (blocked) dx * 0.25f else dx) }
+                        val nextO = o + if (blocked) dx * 0.25f else dx
+                        val past = !blocked && abs(nextO) > fullW * 0.22f
+                        if (past != armed) { armed = past; if (past) haptics.play(Haptic.Threshold) }
+                        scope.launch { offset.snapTo(nextO) }
                     }
                 }
                 .pointerInput(fullW) {
@@ -335,7 +342,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                             start = Offset(pos.x - padPx, pos.y - topPx)
                             region = Rect(start, start)
                             selecting = true; active = null; chrome = false
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptics.play(Haptic.LongPress)
                         },
                         onDrag = { change, _ ->
                             change.consume()
@@ -344,6 +351,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                         },
                         onDragEnd = {
                             selecting = false
+                            haptics.play(Haptic.GestureEnd)
                             val r = region
                             if (r == null || r.width < 24f || r.height < 24f) region = null
                         },
@@ -467,7 +475,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                                 Highlight(UUID.randomUUID().toString(), book.id, page, 0, 0, "", i, "Page ${page + 1}", rect = floatArrayOf(l, t, rr, b)),
                                 crop,
                             )
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptics.play(Haptic.Confirm)
                             toast = "Saved to Highlights"
                         }
                     }
@@ -490,7 +498,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             BarIcon(if (h?.favorite == true) Line.HeartFill else Line.Heart, theme, tint = if (h?.favorite == true) Color(0xFFFF375F) else theme.text) {
                 h?.let { Store.updateHighlight(it.id) { x -> x.copy(favorite = !x.favorite) } }
             }
-            BarIcon(Line.Trash, theme) { h?.let { Store.removeHighlight(it.id) }; active = null; toast = "Removed" }
+            BarIcon(Line.Trash, theme) { h?.let { Store.removeHighlight(it.id) }; haptics.play(Haptic.Reject); active = null; toast = "Removed" }
         }
 
         GlassSheet(sheet != 0, haze, theme, bottomInset, onDismiss = { sheet = 0 }) {

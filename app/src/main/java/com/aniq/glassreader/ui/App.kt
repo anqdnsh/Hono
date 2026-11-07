@@ -2,6 +2,7 @@ package com.aniq.glassreader.ui
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -58,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -91,6 +93,15 @@ fun App(nav: MutableState<NavRequest?>) {
     var toast by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val settings by Store.settings.collectAsState()
+    val wall by Store.wallpaper.collectAsState()
+    val wallBlur by Store.wallpaperBlur.collectAsState()
+    LaunchedEffect(wall) { Wall.image = wall?.asImageBitmap() }
+    LaunchedEffect(wallBlur) { Wall.blurred = wallBlur?.asImageBitmap() }
+    LaunchedEffect(settings.wallDim) { Wall.dim = settings.wallDim }
+    val wallPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) scope.launch { toast = if (Store.setWallpaper(uri)) "Wallpaper set" else "Couldn't use that image" }
+    }
+    val pickWallpaper = { wallPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
 
     fun import(uri: Uri) {
         importing = true
@@ -171,6 +182,7 @@ fun App(nav: MutableState<NavRequest?>) {
                             onImport = launchPicker,
                             onOpen = { id, para, char -> reader = ReaderTarget(id, para, char) },
                             onExport = export,
+                            onPickWallpaper = pickWallpaper,
                         )
                     } else {
                         ReaderScreen(target.bookId, target.para, target.char, onBack = { reader = null })
@@ -204,6 +216,7 @@ private fun Home(
     onImport: () -> Unit,
     onOpen: (String, Int?, Int) -> Unit,
     onExport: (ExportKind, Book?) -> Unit,
+    onPickWallpaper: () -> Unit,
 ) {
     val haze = remember { HazeState() }
     Box(Modifier.fillMaxSize()) {
@@ -212,7 +225,7 @@ private fun Home(
             transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(180)) },
             label = "tab",
         ) { t ->
-            if (t == 0) LibraryScreen(haze, importing, onOpen = { onOpen(it, null, 0) }, onExport = onExport)
+            if (t == 0) LibraryScreen(haze, importing, onOpen = { onOpen(it, null, 0) }, onExport = onExport, onPickWallpaper = onPickWallpaper)
             else HighlightsScreen(haze, onOpen = onOpen, onExportAll = { onExport(ExportKind.AllHighlights, null) })
         }
 
@@ -254,7 +267,7 @@ private fun GlassTabBar(selected: Int, onSelect: (Int) -> Unit, haze: HazeState,
 private fun TabItem(label: String, icon: ImageVector, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val color = if (active) Primary else Secondary
     Column(
-        modifier.fillMaxHeight().bouncyClick(pressedScale = 0.9f, onClick = onClick),
+        modifier.fillMaxHeight().bouncyClick(pressedScale = 0.9f, haptic = Haptic.Tick, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {

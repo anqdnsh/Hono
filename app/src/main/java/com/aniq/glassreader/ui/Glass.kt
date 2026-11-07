@@ -107,8 +107,19 @@ val ReaderThemes = listOf(
 
 val MonoTheme = ReaderTheme("Mono", Color(0xFF000000), Color(0xFFBDBDBD), Color(0xFF6A6A6A), Color(0xFFE0E0E0), false, 0.30f)
 
-fun themeFor(s: com.aniq.glassreader.data.ReaderSettings): ReaderTheme =
-    if (s.mono) MonoTheme else ReaderThemes[s.theme.coerceIn(0, ReaderThemes.lastIndex)]
+val WallTheme = ReaderTheme("Wallpaper", Color(0xFF0E0E10), Color(0xFFF0F0F2), Color(0xFFA0A0A6), Color(0xFFF0F0F2), false, 0.34f)
+
+fun themeFor(s: com.aniq.glassreader.data.ReaderSettings): ReaderTheme = when {
+    s.mono -> MonoTheme
+    s.wallInReader && Wall.blurred != null -> WallTheme
+    else -> ReaderThemes[s.theme.coerceIn(0, ReaderThemes.lastIndex)]
+}
+
+/** Reader page background: a blurred, dimmed wallpaper when that option is on. */
+fun Modifier.readerBackdrop(theme: ReaderTheme): Modifier = if (theme !== WallTheme) this else this.drawBehind {
+    Wall.blurred?.let { drawCover(it) }
+    drawRect(Color.Black.copy(alpha = (Wall.dim + 0.15f).coerceAtMost(0.85f)))
+}
 
 // ---------------- Paper grain ----------------
 
@@ -237,9 +248,40 @@ fun Modifier.card(shape: Shape = RoundedCornerShape(22.dp)): Modifier = this
     .background(Card)
     .border(0.6.dp, Hairline, shape)
 
-/** Black → graphite backdrop with a soft grey glow. */
+/** The user's wallpaper (if any), mirrored into Compose state so draw code can read it. */
+object Wall {
+    var image by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
+    var blurred by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
+    var dim by mutableStateOf(0.45f)
+}
+
+/** Draws [img] scaled to fill the area (centre-crop), fixed to the viewport. */
+fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCover(img: androidx.compose.ui.graphics.ImageBitmap) {
+    val iw = img.width.toFloat(); val ih = img.height.toFloat()
+    val scale = maxOf(size.width / iw, size.height / ih)
+    val sw = size.width / scale; val sh = size.height / scale
+    drawImage(
+        img,
+        srcOffset = androidx.compose.ui.unit.IntOffset(((iw - sw) / 2).toInt(), ((ih - sh) / 2).toInt()),
+        srcSize = androidx.compose.ui.unit.IntSize(sw.toInt(), sh.toInt()),
+        dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()),
+        filterQuality = androidx.compose.ui.graphics.FilterQuality.Medium,
+    )
+}
+
+/** Black → graphite backdrop with a soft grey glow, or the user's own wallpaper. */
 fun Modifier.glassBackdrop(): Modifier = this.drawBehind {
     val w = size.width; val h = size.height
+    val wall = Wall.image
+    if (wall != null) {
+        drawCover(wall)
+        drawRect(Brush.verticalGradient(
+            0f to Color.Black.copy(alpha = Wall.dim * 0.8f),
+            0.5f to Color.Black.copy(alpha = Wall.dim),
+            1f to Color.Black.copy(alpha = minOf(1f, Wall.dim + 0.25f)),
+        ))
+        return@drawBehind
+    }
     drawRect(
         Brush.verticalGradient(
             0f to Color(0xFF26262A),
@@ -264,9 +306,11 @@ fun Modifier.glassBackdrop(): Modifier = this.drawBehind {
 @Composable
 fun Modifier.bouncyClick(
     pressedScale: Float = 0.95f,
+    haptic: Haptic? = Haptic.Tap,
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ): Modifier {
+    val haptics = rememberHaptics()
     val src = remember { MutableInteractionSource() }
     val pressed by src.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -277,7 +321,11 @@ fun Modifier.bouncyClick(
     val dim by animateFloatAsState(if (pressed) 0.75f else 1f, spring(stiffness = Spring.StiffnessMedium), label = "dim")
     return this
         .graphicsLayer { scaleX = scale; scaleY = scale; alpha = dim }
-        .combinedClickable(interactionSource = src, indication = null, onLongClick = onLongClick, onClick = onClick)
+        .combinedClickable(
+            interactionSource = src, indication = null,
+            onLongClick = onLongClick?.let { lc -> { haptics.play(Haptic.LongPress); lc() } },
+            onClick = { haptic?.let { haptics.play(it) }; onClick() },
+        )
 }
 
 /** Circular liquid-glass button. */
@@ -316,7 +364,17 @@ fun ThinSlider(
     onFinished: () -> Unit = {},
 ) {
     var active by remember { mutableStateOf(false) }
-    val change by rememberUpdatedState(onChange)
+    val haptics = rememberHaptics()
+    var lastStep by remember { mutableStateOf(-1) }
+    val rawChange by rememberUpdatedState(onChange)
+    val change: (Float) -> Unit = { v ->
+        // a soft detent every 1/40th of the track, like a ratcheting dial
+        val sp = range.endInclusive - range.start
+        val step = if (sp == 0f) 0 else (((v - range.start) / sp) * 40).toInt()
+        if (lastStep != -1 && step != lastStep) haptics.play(Haptic.Tick)
+        lastStep = step
+        rawChange(v)
+    }
     val finished by rememberUpdatedState(onFinished)
     val trackH by animateDpAsState(if (active) 8.dp else 5.dp, spring(0.7f, 600f), label = "track")
     val knob by animateDpAsState(if (active) 22.dp else 16.dp, spring(0.55f, 600f), label = "knob")
@@ -330,7 +388,7 @@ fun ThinSlider(
             .height(32.dp)
             .pointerInput(range) {
                 detectTapGestures(onPress = { pos ->
-                    active = true
+                    active = true; lastStep = -1; haptics.play(Haptic.GestureStart)
                     change(range.start + span * (pos.x / size.width).coerceIn(0f, 1f))
                     tryAwaitRelease()
                     active = false
