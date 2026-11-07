@@ -1,51 +1,86 @@
 package com.aniq.glassreader.ui
 
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.addPathNodes
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.aniq.glassreader.R
+import dev.chrisbanes.haze.HazeProgressive
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 
-// ---------------- Palette ----------------
+// ---------------- Type ----------------
 
-val AppBg = Color(0xFF0B0D1A)
+val Inter = FontFamily(
+    Font(R.font.inter_regular, FontWeight.Normal),
+    Font(R.font.inter_medium, FontWeight.Medium),
+    Font(R.font.inter_semibold, FontWeight.SemiBold),
+    Font(R.font.inter_bold, FontWeight.Bold),
+)
+
+// ---------------- Palette (monochrome) ----------------
+
+val AppBg = Color(0xFF000000)
+val Card = Color(0xFF141416)
+val Hairline = Color.White.copy(alpha = 0.07f)
+val Primary = Color(0xFFF5F5F7)
+val Secondary = Color(0xFF8E8E93)
+val Tertiary = Color(0xFF5A5A5F)
 
 val HighlightColors = listOf(
-    Color(0xFFFFD54F), // yellow
-    Color(0xFF7FE3A0), // green
-    Color(0xFF7CC8FF), // blue
-    Color(0xFFFF8FB8), // pink
-    Color(0xFFC3A1FF), // purple
+    Color(0xFFFFD60A), // yellow
+    Color(0xFF30D158), // green
+    Color(0xFF64D2FF), // blue
+    Color(0xFFFF6482), // pink
+    Color(0xFFBF5AF2), // purple
 )
 val HighlightColorInts: List<Int> = HighlightColors.map { it.toArgb() }
 
@@ -58,83 +93,177 @@ class ReaderTheme(
     val light: Boolean,
     val hlAlpha: Float,
 ) {
-    val glassTint: Color get() = if (light) Color.White.copy(alpha = 0.55f) else bg.copy(alpha = 0.55f)
+    val glassTint: Color get() = if (light) Color.White.copy(alpha = 0.62f) else Color(0xFF1C1C1E).copy(alpha = 0.55f)
 }
 
 val ReaderThemes = listOf(
-    ReaderTheme("Paper", Color(0xFFF8F5EE), Color(0xFF1F1F22), Color(0xFF6E6E73), Color(0xFF2F6BFF), true, 0.45f),
-    ReaderTheme("Sepia", Color(0xFFF3E6CC), Color(0xFF3B2E1F), Color(0xFF7B6A54), Color(0xFFB5651D), true, 0.45f),
-    ReaderTheme("Night", Color(0xFF1B1C22), Color(0xFFDCDCE2), Color(0xFF8E8E99), Color(0xFF8AB4FF), false, 0.33f),
-    ReaderTheme("Black", Color(0xFF000000), Color(0xFFC7C7CC), Color(0xFF7C7C82), Color(0xFF8AB4FF), false, 0.30f),
+    ReaderTheme("White", Color(0xFFFFFFFF), Color(0xFF1C1C1E), Color(0xFF8A8A8E), Color(0xFF1C1C1E), true, 0.42f),
+    ReaderTheme("Paper", Color(0xFFF6F1E7), Color(0xFF2B2722), Color(0xFF8C8478), Color(0xFF2B2722), true, 0.42f),
+    ReaderTheme("Sepia", Color(0xFFEEDFC4), Color(0xFF3A2F22), Color(0xFF8A7A63), Color(0xFF3A2F22), true, 0.42f),
+    ReaderTheme("Sage", Color(0xFFE6EBDD), Color(0xFF263024), Color(0xFF7D8A78), Color(0xFF263024), true, 0.42f),
+    ReaderTheme("Graphite", Color(0xFF1C1C1E), Color(0xFFE5E5EA), Color(0xFF8E8E93), Color(0xFFE5E5EA), false, 0.30f),
+    ReaderTheme("Black", Color(0xFF000000), Color(0xFFC9C9CE), Color(0xFF6E6E73), Color(0xFFD1D1D6), false, 0.28f),
 )
 
-// ---------------- Glass modifiers ----------------
+val MonoTheme = ReaderTheme("Mono", Color(0xFF000000), Color(0xFFBDBDBD), Color(0xFF6A6A6A), Color(0xFFE0E0E0), false, 0.30f)
+
+fun themeFor(s: com.aniq.glassreader.data.ReaderSettings): ReaderTheme =
+    if (s.mono) MonoTheme else ReaderThemes[s.theme.coerceIn(0, ReaderThemes.lastIndex)]
+
+// ---------------- Paper grain ----------------
+
+private val grain: androidx.compose.ui.graphics.ImageBitmap by lazy {
+    val size = 256
+    val px = IntArray(size * size)
+    val r = java.util.Random(11)
+    for (i in px.indices) {
+        val v = r.nextInt(256)
+        val a = (r.nextFloat().let { it * it * it } * 90).toInt()
+        px[i] = (a shl 24) or (v shl 16) or (v shl 8) or v
+    }
+    // a few faint fibres
+    repeat(140) {
+        var x = r.nextInt(size).toFloat(); var y = r.nextInt(size).toFloat()
+        val ang = r.nextFloat() * 6.283f
+        repeat(10 + r.nextInt(18)) {
+            val ix = ((x.toInt() % size) + size) % size; val iy = ((y.toInt() % size) + size) % size
+            px[iy * size + ix] = (28 shl 24) or 0x404040
+            x += kotlin.math.cos(ang); y += kotlin.math.sin(ang)
+        }
+    }
+    val b = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+    b.setPixels(px, 0, size, 0, 0, size, size)
+    b.asImageBitmap()
+}
+
+/** Optional paper texture: fine grain + fibres + a soft vignette, drawn under the text. */
+fun Modifier.paper(enabled: Boolean, light: Boolean): Modifier = if (!enabled) this else this.drawBehind {
+    drawRect(
+        androidx.compose.ui.graphics.ShaderBrush(
+            androidx.compose.ui.graphics.ImageShader(grain, androidx.compose.ui.graphics.TileMode.Repeated, androidx.compose.ui.graphics.TileMode.Repeated)
+        ),
+        alpha = if (light) 0.55f else 0.22f,
+        blendMode = if (light) androidx.compose.ui.graphics.BlendMode.Multiply else androidx.compose.ui.graphics.BlendMode.Screen,
+    )
+    drawRect(
+        Brush.radialGradient(
+            listOf(Color.Transparent, Color.Black.copy(alpha = if (light) 0.07f else 0.25f)),
+            center = Offset(size.width / 2, size.height / 2),
+            radius = maxOf(size.width, size.height) * 0.75f,
+        )
+    )
+}
+
+/** Black & white mode: drains all colour from whatever is drawn inside. */
+fun Modifier.monochrome(enabled: Boolean): Modifier = if (!enabled) this else this.graphicsLayer {
+    renderEffect = android.graphics.RenderEffect.createColorFilterEffect(
+        android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix().apply { setSaturation(0f) })
+    ).asComposeRenderEffect()
+}
+
+// ---------------- Liquid glass ----------------
 
 private fun rim(light: Boolean) = Brush.linearGradient(
-    if (light) listOf(Color.White.copy(alpha = 0.95f), Color.Black.copy(alpha = 0.06f), Color.White.copy(alpha = 0.7f))
-    else listOf(Color.White.copy(alpha = 0.50f), Color.White.copy(alpha = 0.07f), Color.White.copy(alpha = 0.26f))
+    if (light) listOf(Color.White, Color.Black.copy(alpha = 0.05f), Color.Black.copy(alpha = 0.03f), Color.White.copy(alpha = 0.8f))
+    else listOf(
+        Color.White.copy(alpha = 0.34f),
+        Color.White.copy(alpha = 0.06f),
+        Color.White.copy(alpha = 0.02f),
+        Color.White.copy(alpha = 0.14f),
+    ),
+    start = Offset.Zero,
+    end = Offset.Infinite,
 )
 
 /**
- * Real backdrop-blur "liquid glass": blurs whatever is drawn under it (via Haze),
- * adds a tint, a specular sheen across the top and a light-catching rim.
+ * Apple-Music-style liquid glass: heavy backdrop blur with a smoky tint,
+ * a soft specular sheen on the upper half, an inner glow, and a light-catching rim
+ * that's brightest at the top-left edge.
  */
 fun Modifier.glass(
     state: HazeState,
     shape: Shape,
-    tint: Color = Color.White.copy(alpha = 0.08f),
+    tint: Color = Color(0xFF1C1C1E).copy(alpha = 0.52f),
     base: Color = AppBg,
-    blur: Dp = 30.dp,
+    blur: Dp = 26.dp,
     light: Boolean = false,
+    floating: Boolean = false,
 ): Modifier = this
+    .then(if (floating) Modifier.shadow(28.dp, shape, clip = false, ambientColor = Color.Black, spotColor = Color.Black) else Modifier)
     .clip(shape)
     .hazeEffect(
         state = state,
-        style = HazeStyle(
-            backgroundColor = base,
-            tint = HazeTint(tint),
-            blurRadius = blur,
-            noiseFactor = 0.035f,
-        ),
+        style = HazeStyle(backgroundColor = base, tint = HazeTint(tint), blurRadius = blur, noiseFactor = 0.015f),
     )
     .drawBehind {
         drawRect(
             Brush.verticalGradient(
-                0f to Color.White.copy(alpha = if (light) 0.35f else 0.12f),
-                0.55f to Color.Transparent,
+                0f to Color.White.copy(alpha = if (light) 0.45f else 0.075f),
+                0.5f to Color.Transparent,
+                1f to Color.White.copy(alpha = if (light) 0.0f else 0.02f),
             )
         )
     }
-    .border(1.dp, rim(light), shape)
+    .border(0.8.dp, rim(light), shape)
 
-/** Cheap glass for cards that live inside scrolling content (no live blur needed). */
-fun Modifier.staticGlass(shape: Shape): Modifier = this
+/** Soft, progressive blur that fades content out under the status bar (iOS 26 style). */
+fun Modifier.topFade(state: HazeState, base: Color = AppBg): Modifier = this
+    .hazeEffect(
+        state = state,
+        style = HazeStyle(backgroundColor = base, tint = HazeTint(base.copy(alpha = 0.35f)), blurRadius = 18.dp, noiseFactor = 0f),
+    ) {
+        progressive = HazeProgressive.verticalGradient(startIntensity = 1f, endIntensity = 0f)
+    }
+    .drawWithContent {
+        drawContent()
+        drawRect(Brush.verticalGradient(0f to base.copy(alpha = 0.75f), 0.6f to base.copy(alpha = 0.2f), 1f to Color.Transparent))
+    }
+
+fun Modifier.bottomFade(state: HazeState, base: Color = AppBg): Modifier = this
+    .hazeEffect(
+        state = state,
+        style = HazeStyle(backgroundColor = base, tint = HazeTint(base.copy(alpha = 0.35f)), blurRadius = 18.dp, noiseFactor = 0f),
+    ) {
+        progressive = HazeProgressive.verticalGradient(startIntensity = 0f, endIntensity = 1f)
+    }
+    .drawWithContent {
+        drawContent()
+        drawRect(Brush.verticalGradient(0f to Color.Transparent, 0.5f to base.copy(alpha = 0.3f), 1f to base.copy(alpha = 0.85f)))
+    }
+
+/** Flat card used inside scrolling content. */
+fun Modifier.card(shape: Shape = RoundedCornerShape(22.dp)): Modifier = this
     .clip(shape)
-    .background(
-        Brush.linearGradient(
-            listOf(Color.White.copy(alpha = 0.15f), Color.White.copy(alpha = 0.05f), Color.White.copy(alpha = 0.09f))
+    .background(Card)
+    .border(0.6.dp, Hairline, shape)
+
+/** Black → graphite backdrop with a soft grey glow. */
+fun Modifier.glassBackdrop(): Modifier = this.drawBehind {
+    val w = size.width; val h = size.height
+    drawRect(
+        Brush.verticalGradient(
+            0f to Color(0xFF26262A),
+            0.28f to Color(0xFF111113),
+            0.62f to Color(0xFF050505),
+            1f to Color(0xFF000000),
         )
     )
-    .border(1.dp, rim(false), shape)
-
-/** Colourful, static backdrop so the glass has something to refract. */
-fun Modifier.glassBackdrop(): Modifier = this.drawBehind {
-    drawRect(AppBg)
-    val w = size.width; val h = size.height
-    fun blob(c: Color, x: Float, y: Float, r: Float) {
+    fun glow(c: Color, x: Float, y: Float, r: Float) {
         val center = Offset(w * x, h * y)
         drawCircle(Brush.radialGradient(listOf(c, Color.Transparent), center = center, radius = r), radius = r, center = center)
     }
-    blob(Color(0xFF5B3FD9).copy(alpha = 0.55f), 0.10f, 0.10f, w * 0.95f)
-    blob(Color(0xFF0FA3A3).copy(alpha = 0.40f), 1.00f, 0.42f, w * 0.85f)
-    blob(Color(0xFFD9467A).copy(alpha = 0.30f), 0.20f, 0.92f, w * 0.90f)
+    glow(Color(0xFF4A4A50).copy(alpha = 0.35f), 0.92f, 0.02f, w * 0.85f)
+    glow(Color(0xFF2C2C30).copy(alpha = 0.45f), 0.0f, 0.55f, w * 0.75f)
+    glow(Color(0xFF1A1A1D).copy(alpha = 0.6f), 0.7f, 1.0f, w * 0.9f)
 }
+
+// ---------------- Interaction ----------------
 
 /** Springy press feedback, like iOS. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Modifier.bouncyClick(
-    pressedScale: Float = 0.94f,
+    pressedScale: Float = 0.95f,
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ): Modifier {
@@ -142,53 +271,117 @@ fun Modifier.bouncyClick(
     val pressed by src.collectIsPressedAsState()
     val scale by animateFloatAsState(
         if (pressed) pressedScale else 1f,
-        spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow),
+        spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMedium),
         label = "press",
     )
+    val dim by animateFloatAsState(if (pressed) 0.75f else 1f, spring(stiffness = Spring.StiffnessMedium), label = "dim")
     return this
-        .graphicsLayer { scaleX = scale; scaleY = scale }
+        .graphicsLayer { scaleX = scale; scaleY = scale; alpha = dim }
         .combinedClickable(interactionSource = src, indication = null, onLongClick = onLongClick, onClick = onClick)
 }
 
+/** Circular liquid-glass button. */
 @Composable
-fun GlassIconButton(
+fun GlassCircle(
     icon: ImageVector,
     description: String,
+    haze: HazeState,
     modifier: Modifier = Modifier,
-    tint: Color = Color.White,
+    size: Dp = 46.dp,
+    tint: Color = Primary,
+    glassTint: Color = Color(0xFF1C1C1E).copy(alpha = 0.52f),
+    base: Color = AppBg,
+    light: Boolean = false,
     onClick: () -> Unit,
 ) {
     Box(
         modifier
-            .size(44.dp)
-            .bouncyClick(pressedScale = 0.86f, onClick = onClick)
-            .clip(CircleShape)
-            .background(tint.copy(alpha = 0.10f))
-            .border(1.dp, tint.copy(alpha = 0.22f), CircleShape),
+            .size(size)
+            .bouncyClick(pressedScale = 0.88f, onClick = onClick)
+            .glass(haze, CircleShape, glassTint, base, light = light, floating = true),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, description, tint = tint, modifier = Modifier.size(22.dp))
+        Icon(icon, description, tint = tint, modifier = Modifier.size(size * 0.46f))
     }
 }
 
-// ---------------- Icons ----------------
+/** Minimal slider: hairline track that thickens while dragging, small white knob. */
+@Composable
+fun ThinSlider(
+    value: Float,
+    onChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    range: ClosedFloatingPointRange<Float> = 0f..1f,
+    fg: Color = Primary,
+    onFinished: () -> Unit = {},
+) {
+    var active by remember { mutableStateOf(false) }
+    val change by rememberUpdatedState(onChange)
+    val finished by rememberUpdatedState(onFinished)
+    val trackH by animateDpAsState(if (active) 8.dp else 5.dp, spring(0.7f, 600f), label = "track")
+    val knob by animateDpAsState(if (active) 22.dp else 16.dp, spring(0.55f, 600f), label = "knob")
+    val span = range.endInclusive - range.start
+    val frac = if (span == 0f) 0f else ((value - range.start) / span).coerceIn(0f, 1f)
+    val density = LocalDensity.current
 
-val BookIcon: ImageVector by lazy {
-    ImageVector.Builder("book", 24.dp, 24.dp, 24f, 24f)
-        .addPath(
-            addPathNodes(
-                "M21,5c-1.11,-0.35 -2.33,-0.5 -3.5,-0.5c-1.95,0 -4.05,0.4 -5.5,1.5c-1.45,-1.1 -3.55,-1.5 -5.5,-1.5S2.45,4.9 1,6v14.65c0,0.25 0.25,0.5 0.5,0.5c0.1,0 0.15,-0.05 0.25,-0.05C3.1,20.45 5.05,20 6.5,20c1.95,0 4.05,0.4 5.5,1.5c1.35,-0.85 3.8,-1.5 5.5,-1.5c1.65,0 3.35,0.3 4.75,1.05c0.1,0.05 0.15,0.05 0.25,0.05c0.25,0 0.5,-0.25 0.5,-0.5V6C22.4,5.55 21.75,5.25 21,5zM21,18.5c-1.1,-0.35 -2.3,-0.5 -3.5,-0.5c-1.7,0 -4.15,0.65 -5.5,1.5V8c1.35,-0.85 3.8,-1.5 5.5,-1.5c1.2,0 2.4,0.15 3.5,0.5V18.5z"
-            ),
-            fill = SolidColor(Color.Black),
+    BoxWithConstraints(
+        modifier
+            .fillMaxWidth()
+            .height(32.dp)
+            .pointerInput(range) {
+                detectTapGestures(onPress = { pos ->
+                    active = true
+                    change(range.start + span * (pos.x / size.width).coerceIn(0f, 1f))
+                    tryAwaitRelease()
+                    active = false
+                    finished()
+                })
+            }
+            .pointerInput(range) {
+                detectHorizontalDragGestures(
+                    onDragStart = { active = true },
+                    onDragEnd = { active = false; finished() },
+                    onDragCancel = { active = false; finished() },
+                ) { ch, _ ->
+                    ch.consume()
+                    change(range.start + span * (ch.position.x / size.width).coerceIn(0f, 1f))
+                }
+            },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        val w = maxWidth
+        Box(Modifier.fillMaxWidth().height(trackH).clip(CircleShape).background(fg.copy(alpha = 0.16f))) {
+            Box(Modifier.fillMaxWidth(frac).height(trackH).background(fg.copy(alpha = 0.85f), RectangleShape))
+        }
+        val x = with(density) { ((w - knob) * frac).toPx() }
+        Box(
+            Modifier
+                .offset { androidx.compose.ui.unit.IntOffset(x.toInt(), 0) }
+                .size(knob)
+                .shadow(6.dp, CircleShape)
+                .clip(CircleShape)
+                .background(Color.White)
         )
-        .build()
+    }
 }
 
-val HighlighterIcon: ImageVector by lazy {
-    ImageVector.Builder("highlighter", 24.dp, 24.dp, 24f, 24f)
-        .addPath(
-            addPathNodes("M6,14l3,3v5h6v-5l3,-3V9H6V14zM11,2h2v3h-2V2zM3.5,5.88l1.41,-1.41l2.12,2.12L5.62,8L3.5,5.88zM16.96,6.59l2.12,-2.12l1.41,1.41L18.38,8L16.96,6.59z"),
-            fill = SolidColor(Color.Black),
+/** iOS-style switch with a springy knob. */
+@Composable
+fun GlassSwitch(on: Boolean, fg: Color = Primary) {
+    val x by animateDpAsState(if (on) 20.dp else 0.dp, spring(0.6f, 600f), label = "sw")
+    val track by androidx.compose.animation.animateColorAsState(
+        if (on) fg.copy(alpha = 0.85f) else fg.copy(alpha = 0.16f), label = "swc")
+    Box(
+        Modifier.size(width = 50.dp, height = 30.dp).clip(CircleShape).background(track),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Box(
+            Modifier.offset(x = x + 2.dp).size(26.dp).shadow(3.dp, CircleShape).clip(CircleShape)
+                .background(if (on && fg.luminanceIsDark()) Color.White else Color.White)
         )
-        .build()
+    }
 }
+
+private fun Color.luminanceIsDark() = (red * 0.299f + green * 0.587f + blue * 0.114f) < 0.5f
+
+fun Modifier.hairline(shape: Shape): Modifier = this.border(0.6.dp, Hairline, shape)

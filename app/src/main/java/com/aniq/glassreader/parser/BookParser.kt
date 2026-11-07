@@ -83,7 +83,26 @@ object BookParser {
                 ?: coverId?.let { byId[it] }?.takeIf { it.type.startsWith("image") }
                 ?: items.firstOrNull { it.type.startsWith("image") && it.id.contains("cover", true) }
                 ?: items.firstOrNull { it.type.startsWith("image") && it.href.contains("cover", true) }
-            val cover = coverItem?.let { readBytes(it.href) }
+            var cover = coverItem?.let { readBytes(it.href) }
+            if (cover == null) {
+                // Fallback: the first image referenced by the opening pages (usually cover.xhtml)
+                val guideHref = Regex("""<reference\b[^>]*type\s*=\s*"cover"[^>]*>""").find(opf)?.value
+                    ?.let { attrs(it)["href"] }?.let { resolve(opfDir, it) }
+                val candidates = listOfNotNull(guideHref) + spine.take(3).map { it.href }
+                for (doc in candidates) {
+                    val html = read(doc) ?: continue
+                    val docDir = doc.substringBeforeLast('/', "")
+                    val src = Regex("""<img\b[^>]*>""", RegexOption.IGNORE_CASE).find(html)?.value?.let { attrs(it)["src"] }
+                        ?: Regex("""<image\b[^>]*>""", RegexOption.IGNORE_CASE).find(html)?.value
+                            ?.let { a -> attrs(a).let { it["xlink:href"] ?: it["href"] } }
+                    if (src != null) { cover = readBytes(resolve(docDir, src)); if (cover != null) break }
+                }
+            }
+            if (cover == null) {
+                // Last resort: the largest image in the book
+                cover = items.filter { it.type.startsWith("image") }
+                    .maxByOrNull { zip.getEntry(it.href)?.size ?: 0L }?.let { readBytes(it.href) }
+            }
 
             // table of contents: file -> title (first entry per file wins)
             val toc = HashMap<String, String>()

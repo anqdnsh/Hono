@@ -1,71 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/root"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@drawable/widget_glass"
-    android:orientation="vertical"
-    android:padding="16dp">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <ImageView
-            android:id="@+id/dot"
-            android:layout_width="10dp"
-            android:layout_height="10dp"
-            android:src="@drawable/widget_dot" />
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="FROM YOUR HIGHLIGHTS"
-            android:textColor="#CCFFFFFF"
-            android:textSize="10sp"
-            android:letterSpacing="0.12"
-            android:shadowColor="#66000000"
-            android:shadowRadius="4" />
-
-        <ImageView
-            android:id="@+id/next"
-            android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:background="@drawable/widget_chip"
-            android:padding="6dp"
-            android:src="@drawable/ic_refresh" />
+    android:id="@+id/root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/widget_glass" android:orientation="vertical" android:padding="16dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center_vertical" android:orientation="horizontal">
+        <ImageView android:id="@+id/dot" android:layout_width="18dp" android:layout_height="3dp"
+            android:src="@drawable/widget_bar" />
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" />
+        <ImageView android:id="@+id/next" android:layout_width="30dp" android:layout_height="30dp"
+            android:background="@drawable/widget_chip" android:padding="7dp" android:src="@drawable/ic_refresh" />
     </LinearLayout>
-
-    <TextView
-        android:id="@+id/quote"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_marginTop="8dp"
-        android:layout_weight="1"
-        android:ellipsize="end"
-        android:fontFamily="serif"
-        android:gravity="center_vertical"
-        android:maxLines="8"
-        android:text="Highlight passages while reading and they'll appear here."
-        android:textColor="#FFFFFFFF"
-        android:textSize="15sp"
-        android:lineSpacingMultiplier="1.15"
-        android:shadowColor="#66000000"
-        android:shadowRadius="4" />
-
-    <TextView
-        android:id="@+id/source"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:textColor="#B3FFFFFF"
-        android:textSize="11sp"
-        android:shadowColor="#66000000"
-        android:shadowRadius="4" />
+    <TextView android:id="@+id/quote" android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_marginTop="6dp" android:layout_weight="1" android:ellipsize="end"
+        android:gravity="center_vertical" android:maxLines="8"
+        android:text="Hold on a sentence while reading to highlight it. It will appear here."
+        android:textColor="#FFF5F5F7" android:textSize="15sp" android:lineSpacingMultiplier="1.12"
+        android:fontFamily="@font/inter_medium" />
+    <TextView android:id="@+id/source" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="6dp" android:ellipsize="end" android:maxLines="1"
+        android:textColor="#8E8E93" android:textSize="11sp" android:fontFamily="@font/inter_medium" />
 </LinearLayout>

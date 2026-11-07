@@ -15,35 +15,35 @@ import android.graphics.RectF
 import android.widget.RemoteViews
 import com.aniq.glassreader.MainActivity
 import com.aniq.glassreader.R
+import com.aniq.glassreader.data.Highlight
 import com.aniq.glassreader.data.Store
 import com.aniq.glassreader.ui.HighlightColorInts
 
 class ContinueReadingWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        Store.init(context)
-        Widgets.updateContinue(context, manager, ids)
+        Store.init(context); Widgets.updateContinue(context, manager, ids)
     }
 }
 
 class QuoteWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        Store.init(context)
-        Widgets.updateQuote(context, manager, ids)
+        Store.init(context); Widgets.updateQuote(context, manager, ids)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        if (intent.action == Widgets.ACTION_NEXT) {
-            Store.init(context)
-            val size = Store.highlights.value.size
-            if (size > 1) {
-                var next = (Math.random() * size).toInt()
-                if (next == Store.quoteIndex) next = (next + 1) % size
-                Store.quoteIndex = next
-            }
-            val m = AppWidgetManager.getInstance(context)
-            Widgets.updateQuote(context, m, m.getAppWidgetIds(ComponentName(context, QuoteWidget::class.java)))
-        }
+        if (intent.action == Widgets.ACTION_NEXT) { Store.init(context); Widgets.nextQuote(context) }
+    }
+}
+
+class HonoWidget : AppWidgetProvider() {
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        Store.init(context); Widgets.updateHono(context, manager, ids)
+    }
+
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        if (intent.action == Widgets.ACTION_NEXT) { Store.init(context); Widgets.nextQuote(context) }
     }
 }
 
@@ -53,11 +53,31 @@ object Widgets {
     const val EXTRA_OPEN_PARA = "open_para"
     const val EXTRA_OPEN_HIGHLIGHTS = "open_highlights"
 
+    private fun ids(context: Context, m: AppWidgetManager, cls: Class<*>) = m.getAppWidgetIds(ComponentName(context, cls))
+
     fun updateAll(context: Context) {
         val m = AppWidgetManager.getInstance(context)
-        updateContinue(context, m, m.getAppWidgetIds(ComponentName(context, ContinueReadingWidget::class.java)))
-        updateQuote(context, m, m.getAppWidgetIds(ComponentName(context, QuoteWidget::class.java)))
+        updateContinue(context, m, ids(context, m, ContinueReadingWidget::class.java))
+        updateQuote(context, m, ids(context, m, QuoteWidget::class.java))
+        updateHono(context, m, ids(context, m, HonoWidget::class.java))
     }
+
+    fun nextQuote(context: Context) {
+        val size = quotes().size
+        if (size > 1) {
+            var next = (Math.random() * size).toInt()
+            if (next == Store.quoteIndex.mod(size)) next = (next + 1) % size
+            Store.quoteIndex = next
+        }
+        val m = AppWidgetManager.getInstance(context)
+        updateQuote(context, m, ids(context, m, QuoteWidget::class.java))
+        updateHono(context, m, ids(context, m, HonoWidget::class.java))
+    }
+
+    /** Text highlights only; framed PDF clips don't read well at widget size. */
+    private fun quotes(): List<Highlight> = Store.highlights.value.filter { !it.isClip }.sortedBy { it.createdAt }
+
+    private fun currentQuote(): Highlight? = quotes().let { if (it.isEmpty()) null else it[Store.quoteIndex.mod(it.size)] }
 
     private fun openIntent(context: Context, code: Int, fill: Intent.() -> Unit): PendingIntent {
         val i = Intent(context, MainActivity::class.java).apply {
@@ -67,47 +87,66 @@ object Widgets {
         return PendingIntent.getActivity(context, code, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
-    fun updateContinue(context: Context, m: AppWidgetManager, ids: IntArray) {
-        if (ids.isEmpty()) return
+    private fun nextIntent(context: Context, cls: Class<*>, code: Int) = PendingIntent.getBroadcast(
+        context, code, Intent(context, cls).setAction(ACTION_NEXT),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
+    private fun bindContinue(context: Context, v: RemoteViews, clickId: Int, code: Int) {
         val book = Store.lastRead() ?: Store.books.value.firstOrNull()
-        val v = RemoteViews(context.packageName, R.layout.widget_continue)
         if (book != null) {
             v.setTextViewText(R.id.title, book.title)
             v.setTextViewText(R.id.author, book.author)
             v.setProgressBar(R.id.progress, 1000, (book.progress * 1000).toInt(), false)
             v.setTextViewText(R.id.percent, "${(book.progress * 100).toInt()}% read")
             val cover = Store.cover(book.id, 300)
-            if (cover != null) v.setImageViewBitmap(R.id.cover, rounded(cover, 18f))
-            else v.setImageViewResource(R.id.cover, R.drawable.ic_launcher_foreground)
-            v.setOnClickPendingIntent(R.id.root, openIntent(context, 1) { putExtra(EXTRA_OPEN_BOOK, book.id) })
+            if (cover != null) v.setImageViewBitmap(R.id.cover, rounded(cover, 14f))
+            else v.setImageViewResource(R.id.cover, R.mipmap.ic_launcher)
+            v.setOnClickPendingIntent(clickId, openIntent(context, code) { putExtra(EXTRA_OPEN_BOOK, book.id) })
         } else {
             v.setTextViewText(R.id.title, "Add your first book")
-            v.setTextViewText(R.id.author, "Tap to open Glass Reader")
-            v.setOnClickPendingIntent(R.id.root, openIntent(context, 1) {})
+            v.setTextViewText(R.id.author, "Tap to open Hono")
+            v.setImageViewResource(R.id.cover, R.mipmap.ic_launcher)
+            v.setOnClickPendingIntent(clickId, openIntent(context, code) {})
         }
+    }
+
+    private fun bindQuote(context: Context, v: RemoteViews, clickId: Int, code: Int) {
+        val h = currentQuote()
+        if (h != null) {
+            val book = Store.book(h.bookId)
+            v.setTextViewText(R.id.quote, h.text.trim())
+            v.setTextViewText(R.id.source, listOfNotNull(book?.title, h.chapter.takeIf { it.isNotBlank() && it != book?.title }).joinToString(" · "))
+            v.setInt(R.id.dot, "setColorFilter", HighlightColorInts[h.color.coerceIn(0, HighlightColorInts.size - 1)])
+            v.setOnClickPendingIntent(clickId, openIntent(context, code) {
+                putExtra(EXTRA_OPEN_BOOK, h.bookId); putExtra(EXTRA_OPEN_PARA, h.para)
+            })
+        } else {
+            v.setOnClickPendingIntent(clickId, openIntent(context, code) { putExtra(EXTRA_OPEN_HIGHLIGHTS, true) })
+        }
+    }
+
+    fun updateContinue(context: Context, m: AppWidgetManager, ids: IntArray) {
+        if (ids.isEmpty()) return
+        val v = RemoteViews(context.packageName, R.layout.widget_continue)
+        bindContinue(context, v, R.id.root, 1)
         ids.forEach { m.updateAppWidget(it, v) }
     }
 
     fun updateQuote(context: Context, m: AppWidgetManager, ids: IntArray) {
         if (ids.isEmpty()) return
-        val all = Store.highlights.value.sortedBy { it.createdAt }
         val v = RemoteViews(context.packageName, R.layout.widget_quote)
-        if (all.isNotEmpty()) {
-            val h = all[Store.quoteIndex.mod(all.size)]
-            val book = Store.book(h.bookId)
-            v.setTextViewText(R.id.quote, "“${h.text.trim()}”")
-            v.setTextViewText(R.id.source, listOfNotNull(book?.title, h.chapter.takeIf { it.isNotBlank() && it != book?.title }).joinToString(" · "))
-            v.setInt(R.id.dot, "setColorFilter", HighlightColorInts[h.color.coerceIn(0, HighlightColorInts.size - 1)])
-            v.setOnClickPendingIntent(R.id.quote, openIntent(context, 2) {
-                putExtra(EXTRA_OPEN_BOOK, h.bookId); putExtra(EXTRA_OPEN_PARA, h.para)
-            })
-        } else {
-            v.setOnClickPendingIntent(R.id.quote, openIntent(context, 2) {})
-        }
-        v.setOnClickPendingIntent(R.id.root, openIntent(context, 3) { putExtra(EXTRA_OPEN_HIGHLIGHTS, true) })
-        val next = Intent(context, QuoteWidget::class.java).setAction(ACTION_NEXT)
-        v.setOnClickPendingIntent(R.id.next, PendingIntent.getBroadcast(context, 4, next,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+        bindQuote(context, v, R.id.root, 2)
+        v.setOnClickPendingIntent(R.id.next, nextIntent(context, QuoteWidget::class.java, 4))
+        ids.forEach { m.updateAppWidget(it, v) }
+    }
+
+    fun updateHono(context: Context, m: AppWidgetManager, ids: IntArray) {
+        if (ids.isEmpty()) return
+        val v = RemoteViews(context.packageName, R.layout.widget_hono)
+        bindContinue(context, v, R.id.top, 5)
+        bindQuote(context, v, R.id.quoteBox, 6)
+        v.setOnClickPendingIntent(R.id.next, nextIntent(context, HonoWidget::class.java, 7))
         ids.forEach { m.updateAppWidget(it, v) }
     }
 

@@ -1,19 +1,21 @@
 package com.aniq.glassreader.data
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class Book(
     val id: String,
     val title: String,
     val author: String,
-    val format: String,          // "epub" | "txt"
+    val format: String,          // "epub" | "txt" | "pdf"
     val hasCover: Boolean,
-    val progressIndex: Int = 0,
-    val progressOffset: Int = 0,
-    val totalParas: Int = 0,
+    val progressIndex: Int = 0,  // paragraph (text) or page (pdf)
+    val progressOffset: Int = 0, // character offset within the paragraph
+    val totalParas: Int = 0,     // paragraphs (text) or pages (pdf)
     val addedAt: Long = System.currentTimeMillis(),
     val lastOpened: Long = 0L,
 ) {
+    val isPdf get() = format == "pdf"
     val progress: Float
         get() = if (totalParas <= 1) 0f else (progressIndex.toFloat() / (totalParas - 1)).coerceIn(0f, 1f)
 
@@ -39,23 +41,35 @@ data class Book(
     }
 }
 
+/**
+ * A highlight is either a text range in a paragraph, or (for PDFs) a framed
+ * region of a page, stored as a normalised rect plus a cropped image.
+ */
 data class Highlight(
     val id: String,
     val bookId: String,
-    val para: Int,
+    val para: Int,               // paragraph index, or page index for clips
     val start: Int,
     val end: Int,
     val text: String,
-    val color: Int,              // index into HighlightColors
+    val color: Int,
     val chapter: String,
     val favorite: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
+    val rect: FloatArray? = null, // l, t, r, b in 0..1 page space (clips only)
 ) {
+    val isClip get() = rect != null
+
     fun toJson() = JSONObject().apply {
         put("id", id); put("book", bookId); put("para", para); put("s", start); put("e", end)
         put("text", text); put("color", color); put("chapter", chapter)
         put("fav", favorite); put("at", createdAt)
+        rect?.let { r -> put("rect", JSONArray().apply { r.forEach { put(it.toDouble()) } }) }
     }
+
+    override fun equals(other: Any?) = other is Highlight && other.id == id && other.color == color &&
+        other.favorite == favorite && other.start == start && other.end == end && other.text == text
+    override fun hashCode() = id.hashCode()
 
     companion object {
         fun fromJson(o: JSONObject) = Highlight(
@@ -69,6 +83,7 @@ data class Highlight(
             chapter = o.optString("chapter"),
             favorite = o.optBoolean("fav", false),
             createdAt = o.optLong("at", 0L),
+            rect = o.optJSONArray("rect")?.let { a -> FloatArray(a.length()) { a.getDouble(it).toFloat() } },
         )
     }
 }
@@ -76,10 +91,12 @@ data class Highlight(
 data class ReaderSettings(
     val fontSize: Float = 19f,
     val lineHeight: Float = 1.6f,
-    val theme: Int = 2,          // 0 Paper, 1 Sepia, 2 Night, 3 Black
-    val serif: Boolean = true,
+    val theme: Int = 5,          // index into ReaderThemes
+    val serif: Boolean = false,
     val justify: Boolean = true,
-    val margin: Int = 24,
+    val margin: Int = 26,
+    val grain: Boolean = false,  // paper texture
+    val mono: Boolean = false,   // black & white mode
 )
 
 /** Para styles are packed triples: start, end, type (1 = italic, 2 = bold). */

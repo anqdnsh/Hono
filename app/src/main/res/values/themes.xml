@@ -9,5 +9,5 @@
         <item name="android:windowSplashScreenBackground">@color/bg</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
     </style>
-    <color name="bg">#0B0D1A</color>
+    <color name="bg">#000000</color>
 </resources>
