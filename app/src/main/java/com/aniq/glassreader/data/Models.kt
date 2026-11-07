@@ -105,6 +105,7 @@ data class ReaderSettings(
     val hapticLevel: Int = 2,    // 0 light, 1 medium, 2 strong
     val volumeKeys: Boolean = true,
     val pageAnim: Int = 0,       // 0 slide, 1 fade
+    val coverScreen: Boolean = false,
 )
 
 /** Para styles are packed triples: start, end, type (1 = italic, 2 = bold). */

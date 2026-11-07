@@ -323,8 +323,10 @@ private fun ReaderBody(
     DisposableEffect(Unit) {
         view.keepScreenOn = true
         ReaderKeys.active = true
+        com.aniq.glassreader.CoverDisplay.openBook.value = book.id
         onDispose {
             ReaderKeys.active = false
+            com.aniq.glassreader.CoverDisplay.openBook.value = null
             view.keepScreenOn = false
             controller?.show(WindowInsetsCompat.Type.systemBars())
             Store.updateProgress(book.id, anchorNow.para, anchorNow.char, n)

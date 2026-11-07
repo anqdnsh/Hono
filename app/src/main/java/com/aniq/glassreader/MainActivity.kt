@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -29,6 +30,7 @@ class MainActivity : ComponentActivity() {
         window.isNavigationBarContrastEnforced = false
         requestHighestRefreshRate()
         handle(intent)
+        CoverDisplay(this, lifecycleScope).start()
         setContent { App(navRequest) }
     }
 

@@ -139,6 +139,17 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
             }
 
             item {
+                val coverOk by com.aniq.glassreader.CoverDisplay.supported.collectAsState()
+                Section(
+                    "Outer screen",
+                    if (coverOk) "Shows while you read with the phone unfolded."
+                    else "This phone doesn't offer outer-screen display to apps right now. Try with the phone unfolded, or it may not be supported.",
+                ) {
+                    Pad { ToggleRow("Show book cover on outer screen", "The cover, title and progress of what you're reading", s.coverScreen, UiTheme) { v -> set { it.copy(coverScreen = v) } } }
+                }
+            }
+
+            item {
                 Section("Haptics") {
                     Pad { ToggleRow("Haptic feedback", "Feel page turns, highlights and controls", s.haptics, UiTheme) { v -> set { it.copy(haptics = v) } } }
                     AnimatedVisibility(s.haptics, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {

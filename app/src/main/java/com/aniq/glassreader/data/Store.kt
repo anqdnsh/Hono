@@ -87,6 +87,7 @@ object Store {
             hapticLevel = prefs.getInt("hapticLevel", d.hapticLevel),
             volumeKeys = prefs.getBoolean("volKeys", d.volumeKeys),
             pageAnim = prefs.getInt("pageAnim", d.pageAnim),
+            coverScreen = prefs.getBoolean("coverScreen", d.coverScreen),
         )
         initialized = true
         io.launch {
@@ -388,7 +389,7 @@ object Store {
             .putBoolean("grain", s.grain).putBoolean("mono", s.mono)
             .putFloat("wallDim", s.wallDim).putBoolean("wallReader", s.wallInReader)
             .putFloat("grainAmt", s.grainAmount).putInt("pdfMode", s.pdfMode)
-            .putBoolean("haptics", s.haptics).putInt("hapticLevel", s.hapticLevel).putBoolean("volKeys", s.volumeKeys).putInt("pageAnim", s.pageAnim)
+            .putBoolean("haptics", s.haptics).putInt("hapticLevel", s.hapticLevel).putBoolean("volKeys", s.volumeKeys).putInt("pageAnim", s.pageAnim).putBoolean("coverScreen", s.coverScreen)
             .apply()
     }
 
