@@ -650,6 +650,7 @@ private fun SmallIcon(
 
 // ---------------- Sheets ----------------
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GlassSheet(
     visible: Boolean,
