@@ -56,9 +56,10 @@ data class Highlight(
     val chapter: String,
     val favorite: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
-    val rect: FloatArray? = null, // l, t, r, b in 0..1 page space (clips only)
+    val rect: FloatArray? = null, // PDF only: one or more l,t,r,b boxes in 0..1 page space
 ) {
-    val isClip get() = rect != null
+    /** A framed picture of a page region (scanned PDFs), rather than selected text. */
+    val isClip get() = rect != null && text.isEmpty()
 
     fun toJson() = JSONObject().apply {
         put("id", id); put("book", bookId); put("para", para); put("s", start); put("e", end)

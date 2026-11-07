@@ -100,6 +100,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.Closeable
@@ -113,7 +114,10 @@ import kotlin.math.roundToInt
 private class PdfLink(val r: android.graphics.RectF, val page: Int, val uri: String?)
 
 /** A rendered page plus the rectangle (in bitmap pixels) that actually has content. */
-private class Rendered(val bmp: Bitmap, val crop: android.graphics.Rect, val links: List<PdfLink> = emptyList())
+private class Rendered(val bmp: Bitmap, val crop: android.graphics.Rect, val links: List<PdfLink> = emptyList(), val hasText: Boolean = false)
+
+/** Text selected on a page: the words and their line boxes (normalised, 4 floats per box). */
+private class TextSel(val page: Int, val text: String, val rects: FloatArray)
 
 /** Thin wrapper around the platform PdfRenderer. Only ever touched from [paginationThread]. */
 private class PdfDoc(file: java.io.File) : Closeable {
@@ -129,7 +133,34 @@ private class PdfDoc(file: java.io.File) : Closeable {
             bmp.eraseColor(android.graphics.Color.WHITE)
             p.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             val links = if (android.os.Build.VERSION.SDK_INT >= 35) runCatching { pageLinks(p) }.getOrDefault(emptyList()) else emptyList()
-            return Rendered(bmp, contentBounds(bmp), links)
+            val hasText = android.os.Build.VERSION.SDK_INT >= 35 &&
+                runCatching { p.textContents.any { it.text.isNotBlank() } }.getOrDefault(false)
+            return Rendered(bmp, contentBounds(bmp), links, hasText)
+        }
+    }
+
+    /** Native text selection between two points (normalised page coordinates). */
+    fun select(index: Int, a: Offset, b: Offset): TextSel? {
+        if (android.os.Build.VERSION.SDK_INT < 35) return null
+        return selectApi35(index, a, b)
+    }
+
+    @androidx.annotation.RequiresApi(35)
+    private fun selectApi35(index: Int, a: Offset, b: Offset): TextSel? {
+        renderer.openPage(index).use { p ->
+            val pw = p.width.toFloat(); val ph = p.height.toFloat()
+            fun pt(o: Offset) = android.graphics.Point((o.x * pw).roundToInt(), (o.y * ph).roundToInt())
+            val sel = p.selectContent(
+                android.graphics.pdf.models.selection.SelectionBoundary(pt(a)),
+                android.graphics.pdf.models.selection.SelectionBoundary(pt(b)),
+            ) ?: return null
+            val parts = sel.selectedTextContents
+            val text = parts.joinToString(" ") { it.text }.replace(Regex("\\s+"), " ").trim()
+            if (text.isEmpty()) return null
+            val boxes = parts.flatMap { it.bounds }
+            val arr = FloatArray(boxes.size * 4)
+            boxes.forEachIndexed { i, r -> arr[i * 4] = r.left / pw; arr[i * 4 + 1] = r.top / ph; arr[i * 4 + 2] = r.right / pw; arr[i * 4 + 3] = r.bottom / ph }
+            return TextSel(index, text, arr)
         }
     }
 
@@ -246,6 +277,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     val haptic = LocalHapticFeedback.current
     val haptics = rememberHaptics()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboardPdf = androidx.compose.ui.platform.LocalClipboardManager.current
     val density = LocalDensity.current
     val count = d.count
     var page by remember { mutableIntStateOf((jumpPage ?: book.progressIndex).coerceIn(0, count - 1)) }
@@ -258,7 +290,9 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     val bitmaps = remember { mutableStateMapOf<Int, Rendered>() }
 
     val allHl by Store.highlights.collectAsState()
-    val clips = remember(allHl, book.id) { allHl.filter { it.bookId == book.id && it.isClip } }
+    val clips = remember(allHl, book.id) { allHl.filter { it.bookId == book.id && it.rect != null } }
+    var tsel by remember { mutableStateOf<TextSel?>(null) }
+    val selectRequests = remember { kotlinx.coroutines.flow.MutableStateFlow<Triple<Int, Offset, Offset>?>(null) }
     val activeLive = active?.let { a -> clips.firstOrNull { it.id == a.id } }
     val clipsNow by rememberUpdatedState(clips)
 
@@ -322,10 +356,17 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         var pending by remember { mutableStateOf<Int?>(null) }
 
         fun clearTransient(): Boolean {
-            if (region != null || active != null || sheet != 0) { region = null; active = null; sheet = 0; return true }
+            if (region != null || tsel != null || active != null || sheet != 0) { region = null; tsel = null; active = null; sheet = 0; return true }
             return false
         }
-        BackHandler(enabled = region != null || active != null || sheet != 0) { clearTransient() }
+        BackHandler(enabled = region != null || tsel != null || active != null || sheet != 0) { clearTransient() }
+        LaunchedEffect(Unit) {
+            selectRequests.collectLatest { req ->
+                req ?: return@collectLatest
+                val r = withContext(paginationThread) { runCatching { d.select(req.first, req.second, req.third) }.getOrNull() }
+                if (r != null) { if (tsel?.text != r.text) haptics.play(Haptic.TextMove); tsel = r }
+            }
+        }
 
         fun turn(dir: Int, fromDrag: Boolean = false) {
             pending?.let { page = it; pending = null }
@@ -385,13 +426,13 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                                     Offset(pos.x - with(density) { sidePad.toPx() }, pos.y - topPx))
                                 val nx = n.x; val ny = n.y
                                 val lk = rd.links.firstOrNull { it.r.contains(nx, ny) }
-                                if (lk != null && region == null && active == null && sheet == 0) {
+                                if (lk != null && region == null && tsel == null && active == null && sheet == 0) {
                                     haptics.play(Haptic.Tick)
                                     if (lk.page >= 0) jumpRef(lk.page)
                                     else lk.uri?.let { u -> runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u))) } }
                                     return@detectTapGestures
                                 }
-                                clipsNow.firstOrNull { it.para == page && it.rect!!.let { q -> nx in q[0]..q[2] && ny in q[1]..q[3] } }
+                                clipsNow.firstOrNull { it.para == page && it.rect!!.let { q -> (q.indices step 4).any { i -> nx in q[i]..q[i + 2] && ny in q[i + 1]..q[i + 3] } } }
                             } else null
                             when {
                                 clearTransient() -> {}
@@ -438,25 +479,41 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                     var start = Offset.Zero
                     val topPx = pageTop.toPx()
                     val padPx = sidePad.toPx()
+                    var textMode = false
+                    var startN = Offset.Zero
+                    var rdNow: Rendered? = null
+                    fun boxSz() = Size(boxSize.width.toFloat(), boxSize.height.toFloat())
                     detectDragGesturesAfterLongPress(
                         onDragStart = { pos ->
                             start = Offset(pos.x - padPx, pos.y - topPx)
-                            region = Rect(start, start)
-                            selecting = true; active = null; chrome = false
+                            rdNow = bitmaps[page]
+                            textMode = rdNow?.hasText == true
+                            selecting = true; active = null; chrome = false; tsel = null; region = null
                             haptics.play(Haptic.LongPress)
+                            if (textMode) {
+                                startN = toPage(rdNow!!, boxSz(), start)
+                                // a hair-wide span grabs the word under the finger
+                                selectRequests.value = Triple(page, startN.copy(x = startN.x - 0.004f), startN.copy(x = startN.x + 0.004f))
+                            } else region = Rect(start, start)
                         },
                         onDrag = { change, _ ->
                             change.consume()
                             val p = Offset(change.position.x - padPx, change.position.y - topPx)
-                            region = Rect(min(start.x, p.x), min(start.y, p.y), max(start.x, p.x), max(start.y, p.y))
+                            if (textMode) {
+                                selectRequests.value = Triple(page, startN, toPage(rdNow!!, boxSz(), p))
+                            } else {
+                                region = Rect(min(start.x, p.x), min(start.y, p.y), max(start.x, p.x), max(start.y, p.y))
+                            }
                         },
                         onDragEnd = {
                             selecting = false
                             haptics.play(Haptic.GestureEnd)
-                            val r = region
-                            if (r == null || r.width < 24f || r.height < 24f) region = null
+                            if (!textMode) {
+                                val r = region
+                                if (r == null || r.width < 24f || r.height < 24f) region = null
+                            }
                         },
-                        onDragCancel = { selecting = false; region = null },
+                        onDragCancel = { selecting = false; region = null; tsel = null },
                     )
                 },
         ) {
@@ -484,15 +541,23 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                                 dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
                                 colorFilter = filter,
                             )
-                            for (h in pageClips) {
-                                val q = h.rect!!
-                                val a = fromPage(rd, r, q[0], q[1]); val b = fromPage(rd, r, q[2], q[3])
-                                val tl = a
-                                val sz = Size(b.x - a.x, b.y - a.y)
-                                val c = HighlightColors[h.color.coerceIn(0, HighlightColors.lastIndex)]
-                                drawRoundRect(c.copy(alpha = 0.18f), tl, sz, CornerRadius(14f))
-                                drawRoundRect(c.copy(alpha = 0.9f), tl, sz, CornerRadius(14f), style = Stroke(3f))
+                            fun boxes(q: FloatArray, color: Color, framed: Boolean) {
+                                var i = 0
+                                while (i + 3 < q.size) {
+                                    val a = fromPage(rd, r, q[i], q[i + 1]); val b = fromPage(rd, r, q[i + 2], q[i + 3])
+                                    val sz = Size(b.x - a.x, b.y - a.y)
+                                    if (framed) {
+                                        drawRoundRect(color.copy(alpha = 0.16f), a, sz, CornerRadius(14f))
+                                        drawRoundRect(color.copy(alpha = 0.9f), a, sz, CornerRadius(14f), style = Stroke(3f))
+                                    } else {
+                                        drawRoundRect(color.copy(alpha = if (theme.light) 0.38f else 0.32f), a, sz, CornerRadius(6f),
+                                            blendMode = if (theme.light && settings.pdfMode != 2) BlendMode.Multiply else BlendMode.SrcOver)
+                                    }
+                                    i += 4
+                                }
                             }
+                            for (h in pageClips) boxes(h.rect!!, HighlightColors[h.color.coerceIn(0, HighlightColors.lastIndex)], h.isClip)
+                            if (dlt == 0) tsel?.takeIf { it.page == p }?.let { boxes(it.rects, theme.accent.copy(alpha = 0.7f), false) }
                             if (dlt == 0) region?.let { rg ->
                                 drawRoundRect(theme.accent.copy(alpha = 0.12f), rg.topLeft, rg.size, CornerRadius(16f))
                                 drawRoundRect(theme.accent.copy(alpha = 0.85f), rg.topLeft, rg.size, CornerRadius(16f), style = Stroke(3f))
@@ -534,7 +599,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
 
         // bottom controls
         AnimatedVisibility(
-            visible = chrome && region == null && active == null,
+            visible = chrome && region == null && tsel == null && active == null,
             enter = fadeIn(tween(200)) + slideInVertically(spring(0.85f, 500f)) { it / 2 },
             exit = fadeOut(tween(160)) + slideOutVertically(spring(0.9f, 600f)) { it / 2 },
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -591,6 +656,27 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             BarIcon(Line.Close, theme) { region = null }
         }
 
+        // text selection toolbar
+        var lastSel by remember { mutableStateOf<TextSel?>(null) }
+        tsel?.let { lastSel = it }
+        Toolbar(visible = tsel != null && !selecting, haze, theme, bottomInset) {
+            HighlightColors.forEachIndexed { i, col ->
+                ColorDot(col, false) {
+                    lastSel?.let { t ->
+                        Store.addHighlight(Highlight(UUID.randomUUID().toString(), book.id, t.page, 0, 0, t.text, i, "Page ${t.page + 1}", rect = t.rects))
+                        haptics.play(Haptic.Confirm); toast = "Saved to Highlights"
+                    }
+                    tsel = null
+                }
+            }
+            Divider(theme)
+            BarIcon(Line.Copy, theme) {
+                lastSel?.let { clipboardPdf.setText(androidx.compose.ui.text.AnnotatedString(it.text)) }
+                haptics.play(Haptic.Confirm); tsel = null; toast = "Copied"
+            }
+            BarIcon(Line.Close, theme) { tsel = null }
+        }
+
         // existing clip toolbar
         var lastActive by remember { mutableStateOf<Highlight?>(null) }
         activeLive?.let { lastActive = it }
@@ -611,9 +697,9 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             if (sheet != 0) last = sheet
             if (last == 1) SettingsSheet(settings, theme, pdf = true)
             else {
-                SheetTitle("Clips", theme)
+                SheetTitle("Highlights", theme)
                 if (clips.isEmpty()) {
-                    Text("Hold on a page, then drag to frame the part you love.", color = theme.sub, fontFamily = Inter,
+                    Text("Hold on a word, then drag across the text you want.", color = theme.sub, fontFamily = Inter,
                         fontSize = 14.sp, modifier = Modifier.padding(24.dp))
                 } else LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(clips.sortedBy { it.para }, key = { it.id }) { h ->
@@ -624,10 +710,10 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                             Modifier.fillMaxWidth().bouncyClick(pressedScale = 0.97f) { jump(h.para) }
                                 .clip(RoundedCornerShape(18.dp)).background(theme.text.copy(alpha = 0.05f)).padding(10.dp)
                         ) {
-                            bmp?.let {
+                            if (h.isClip) bmp?.let {
                                 Image(it, null, contentScale = ContentScale.Fit, colorFilter = filter,
                                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)))
-                            }
+                            } else Text(h.text, color = theme.text, fontFamily = Inter, fontSize = 15.sp, lineHeight = 21.sp, maxLines = 5, overflow = TextOverflow.Ellipsis)
                             Text("Page ${h.para + 1}", color = theme.sub, fontFamily = Inter, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
                         }
                     }
