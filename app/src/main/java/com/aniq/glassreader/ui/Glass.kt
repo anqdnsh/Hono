@@ -148,17 +148,17 @@ private val grain: androidx.compose.ui.graphics.ImageBitmap by lazy {
 }
 
 /** Optional paper texture: fine grain + fibres + a soft vignette, drawn under the text. */
-fun Modifier.paper(enabled: Boolean, light: Boolean): Modifier = if (!enabled) this else this.drawBehind {
+fun Modifier.paper(enabled: Boolean, light: Boolean, amount: Float = 0.6f): Modifier = if (!enabled || amount <= 0f) this else this.drawBehind {
     drawRect(
         androidx.compose.ui.graphics.ShaderBrush(
             androidx.compose.ui.graphics.ImageShader(grain, androidx.compose.ui.graphics.TileMode.Repeated, androidx.compose.ui.graphics.TileMode.Repeated)
         ),
-        alpha = if (light) 0.55f else 0.22f,
+        alpha = (if (light) 0.9f else 0.36f) * amount,
         blendMode = if (light) androidx.compose.ui.graphics.BlendMode.Multiply else androidx.compose.ui.graphics.BlendMode.Screen,
     )
     drawRect(
         Brush.radialGradient(
-            listOf(Color.Transparent, Color.Black.copy(alpha = if (light) 0.07f else 0.25f)),
+            listOf(Color.Transparent, Color.Black.copy(alpha = (if (light) 0.11f else 0.35f) * amount)),
             center = Offset(size.width / 2, size.height / 2),
             radius = maxOf(size.width, size.height) * 0.75f,
         )
@@ -282,21 +282,9 @@ fun Modifier.glassBackdrop(): Modifier = this.drawBehind {
         ))
         return@drawBehind
     }
-    drawRect(
-        Brush.verticalGradient(
-            0f to Color(0xFF26262A),
-            0.28f to Color(0xFF111113),
-            0.62f to Color(0xFF050505),
-            1f to Color(0xFF000000),
-        )
-    )
-    fun glow(c: Color, x: Float, y: Float, r: Float) {
-        val center = Offset(w * x, h * y)
-        drawCircle(Brush.radialGradient(listOf(c, Color.Transparent), center = center, radius = r), radius = r, center = center)
-    }
-    glow(Color(0xFF4A4A50).copy(alpha = 0.35f), 0.92f, 0.02f, w * 0.85f)
-    glow(Color(0xFF2C2C30).copy(alpha = 0.45f), 0.0f, 0.55f, w * 0.75f)
-    glow(Color(0xFF1A1A1D).copy(alpha = 0.6f), 0.7f, 1.0f, w * 0.9f)
+    // near-black with the faintest graphite lift at the top, like Apple Music in dark mode
+    drawRect(Color.Black)
+    drawRect(Brush.verticalGradient(0f to Color(0xFF1A1A1C), 0.35f to Color(0xFF0A0A0B), 0.7f to Color.Black), size = androidx.compose.ui.geometry.Size(w, h * 0.7f))
 }
 
 // ---------------- Interaction ----------------

@@ -47,6 +47,12 @@ class HonoWidget : AppWidgetProvider() {
     }
 }
 
+class BookWidget : AppWidgetProvider() {
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        Store.init(context); Widgets.updateBook(context, manager, ids)
+    }
+}
+
 object Widgets {
     const val ACTION_NEXT = "com.aniq.glassreader.NEXT_QUOTE"
     const val EXTRA_OPEN_BOOK = "open_book"
@@ -60,6 +66,23 @@ object Widgets {
         updateContinue(context, m, ids(context, m, ContinueReadingWidget::class.java))
         updateQuote(context, m, ids(context, m, QuoteWidget::class.java))
         updateHono(context, m, ids(context, m, HonoWidget::class.java))
+        updateBook(context, m, ids(context, m, BookWidget::class.java))
+    }
+
+    fun updateBook(context: Context, m: AppWidgetManager, ids: IntArray) {
+        if (ids.isEmpty()) return
+        val v = RemoteViews(context.packageName, R.layout.widget_book)
+        val book = Store.lastRead() ?: Store.books.value.firstOrNull()
+        if (book != null) {
+            v.setProgressBar(R.id.progress, 1000, (book.progress * 1000).toInt(), false)
+            val cover = Store.cover(book.id, 420)
+            if (cover != null) v.setImageViewBitmap(R.id.cover, rounded(cover, 10f)) else v.setImageViewResource(R.id.cover, R.mipmap.ic_launcher)
+            v.setContentDescription(R.id.root, "Continue ${book.title}")
+            v.setOnClickPendingIntent(R.id.root, openIntent(context, 8) { putExtra(EXTRA_OPEN_BOOK, book.id) })
+        } else {
+            v.setOnClickPendingIntent(R.id.root, openIntent(context, 8) {})
+        }
+        ids.forEach { m.updateAppWidget(it, v) }
     }
 
     fun nextQuote(context: Context) {

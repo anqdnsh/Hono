@@ -7,4 +7,6 @@
     <string name="widget_quote_desc">A rotating highlight from your books</string>
     <string name="widget_hono">Hono</string>
     <string name="widget_hono_desc">Your current book and a highlight, together</string>
+    <string name="widget_book">Book</string>
+    <string name="widget_book_desc">Just the cover and your progress</string>
 </resources>

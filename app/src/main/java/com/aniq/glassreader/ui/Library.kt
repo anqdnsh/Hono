@@ -35,6 +35,11 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as rowItems
+import androidx.compose.material3.Icon
+import androidx.compose.ui.layout.layout
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -73,50 +78,54 @@ fun LibraryScreen(
     importing: Boolean,
     onOpen: (String) -> Unit,
     onExport: (ExportKind, Book?) -> Unit,
-    onPickWallpaper: () -> Unit,
 ) {
-    var appearance by remember { mutableStateOf(false) }
-    val settings by Store.settings.collectAsState()
-    val hasWall = Store.wallpaper.collectAsState().value != null
     val books by Store.books.collectAsState()
-    val all by Store.highlights.collectAsState()
-    val last = remember(books) { books.filter { it.lastOpened > 0 }.maxByOrNull { it.lastOpened } }
-    val sorted = remember(books) { books.sortedByDescending { maxOf(it.lastOpened, it.addedAt) } }
+    val recent = remember(books) { books.filter { it.lastOpened > 0 }.sortedByDescending { it.lastOpened }.take(12) }
+    val sorted = remember(books) { books.sortedBy { it.title.lowercase() } }
     var menuFor by remember { mutableStateOf<Book?>(null) }
+    var confirmRemove by remember { mutableStateOf<Book?>(null) }
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     Box(Modifier.fillMaxSize()) {
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(140.dp),
+            columns = GridCells.Adaptive(150.dp),
             modifier = Modifier.fillMaxSize().glassBackdrop().hazeSource(haze),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = top + 104.dp, bottom = bottom + 110.dp),
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = top + 12.dp, bottom = bottom + 100.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
-            if (last != null) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "hero") {
-                    HeroCard(last, all.count { it.bookId == last.id }, Modifier.animateItem()) { onOpen(last.id) }
-                }
-            }
+            item(span = { GridItemSpan(maxLineSpan) }, key = "title") { ScreenTitle("Library") }
+
             if (sorted.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "empty") { EmptyLibrary() }
-            } else {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "title") {
-                    Text("Books", color = Primary, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp,
-                        modifier = Modifier.padding(top = 6.dp))
+            }
+            if (recent.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "recentTitle") { SectionTitle("Continue Reading") }
+                item(span = { GridItemSpan(maxLineSpan) }, key = "recent") {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(horizontal = 20.dp),
+                        modifier = Modifier.fillMaxWidth().layoutBleed(20.dp),
+                    ) {
+                        rowItems(recent, key = { it.id }) { b ->
+                            Column(Modifier.width(150.dp).bouncyClick(onLongClick = { menuFor = b }) { onOpen(b.id) }) {
+                                Cover(b, Modifier.fillMaxWidth().aspectRatio(0.67f))
+                                Spacer(Modifier.height(9.dp))
+                                Text(b.title, color = Primary, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(progressLabel(b), color = Secondary, fontSize = 13.sp, maxLines = 1)
+                            }
+                        }
+                    }
                 }
+            }
+            if (sorted.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "allTitle") { SectionTitle("All Books") }
                 items(sorted, key = { it.id }) { b ->
-                    BookCard(b, Modifier.animateItem(), onClick = { onOpen(b.id) }, onLongClick = { menuFor = b })
+                    BookCard(b, Modifier.animateItem(), onClick = { onOpen(b.id) }, onMore = { menuFor = b })
                 }
             }
         }
-
-        LargeTitle(
-            "Library", haze,
-            subtitle = if (books.isEmpty()) null else "${books.size} ${if (books.size == 1) "book" else "books"}",
-            trailing = { GlassCircle(Line.Sliders, "Appearance", haze, size = 42.dp) { appearance = true } },
-        )
 
         AnimatedVisibility(
             visible = importing,
@@ -125,51 +134,63 @@ fun LibraryScreen(
             modifier = Modifier.align(Alignment.Center),
         ) {
             Text(
-                "Importing…", color = Primary, fontSize = 15.sp, fontWeight = FontWeight.Medium,
-                modifier = Modifier.glass(haze, RoundedCornerShape(50), floating = true).padding(horizontal = 24.dp, vertical = 14.dp),
+                "Adding book…", color = Primary, fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                modifier = Modifier.glass(haze, RoundedCornerShape(50), floating = true).padding(horizontal = 22.dp, vertical = 13.dp),
             )
-        }
-
-        ActionSheet(visible = appearance, haze = haze, onDismiss = { appearance = false }) {
-            val ui = ReaderThemes[4] // graphite text colours for the controls
-            Text("Appearance", color = Primary, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp))
-            Spacer(Modifier.height(12.dp))
-            SheetAction(if (hasWall) "Change wallpaper" else "Choose wallpaper from gallery", null) { appearance = false; onPickWallpaper() }
-            if (hasWall) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
-                    LabeledSlider("Dim wallpaper", "${(settings.wallDim * 100).toInt()}%", settings.wallDim, 0f..0.9f, ui) { v ->
-                        Store.updateSettings { it.copy(wallDim = v) }
-                    }
-                    ToggleRow("Use while reading", "Blurred wallpaper behind your pages", settings.wallInReader, ui) { v ->
-                        Store.updateSettings { it.copy(wallInReader = v) }
-                    }
-                }
-                Spacer(Modifier.height(6.dp))
-                SheetAction("Remove wallpaper", null, Color(0xFFFF453A), haptic = Haptic.Reject) { Store.clearWallpaper() }
-            }
-            Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
-                ToggleRow("Black & White", "No colour anywhere, pure black reading", settings.mono, ui) { v ->
-                    Store.updateSettings { it.copy(mono = v) }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
         }
 
         ActionSheet(visible = menuFor != null, haze = haze, onDismiss = { menuFor = null }) {
             var shown by remember { mutableStateOf<Book?>(null) }
             menuFor?.let { shown = it }
             val b = shown
-            Text(b?.title ?: "", color = Primary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-            Spacer(Modifier.height(14.dp))
-            SheetAction("Export highlights", ".md") { b?.let { onExport(ExportKind.BookHighlights, it) }; menuFor = null }
-            SheetAction("Export book file", ".${b?.format ?: ""}") { b?.let { onExport(ExportKind.BookFile, it) }; menuFor = null }
-            SheetAction("Export book + highlights", ".zip") { b?.let { onExport(ExportKind.Bundle, it) }; menuFor = null }
-            SheetAction("Delete from library", null, Color(0xFFFF453A), haptic = Haptic.Reject) { b?.let { Store.delete(it.id) }; menuFor = null }
+            if (b != null) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Cover(b, Modifier.width(44.dp).aspectRatio(0.67f))
+                    Column(Modifier.padding(start = 14.dp).weight(1f)) {
+                        Text(b.title, color = Primary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(listOf(b.author, progressLabel(b)).filter { it.isNotBlank() }.joinToString(" · "), color = Secondary, fontSize = 13.sp, maxLines = 1)
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                SheetAction("Read", null) { menuFor = null; onOpen(b.id) }
+                SheetAction("Export highlights", ".md") { onExport(ExportKind.BookHighlights, b); menuFor = null }
+                SheetAction("Export book file", ".${b.format}") { onExport(ExportKind.BookFile, b); menuFor = null }
+                SheetAction("Export book with highlights", ".zip") { onExport(ExportKind.Bundle, b); menuFor = null }
+                SheetAction("Remove from Library", null, Color(0xFFFF453A), haptic = Haptic.Reject) { confirmRemove = b; menuFor = null }
+            }
+        }
+
+        ActionSheet(visible = confirmRemove != null, haze = haze, onDismiss = { confirmRemove = null }) {
+            var shown by remember { mutableStateOf<Book?>(null) }
+            confirmRemove?.let { shown = it }
+            Text("Remove “${shown?.title ?: ""}”?", color = Primary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp))
+            Text("The book and its highlights will be deleted from this phone.", color = Secondary, fontSize = 13.sp,
+                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp))
+            Spacer(Modifier.height(10.dp))
+            SheetAction("Remove", null, Color(0xFFFF453A), haptic = Haptic.Reject) { shown?.let { Store.delete(it.id) }; confirmRemove = null }
+            SheetAction("Cancel", null) { confirmRemove = null }
         }
     }
+}
+
+fun progressLabel(b: Book): String = when {
+    b.lastOpened == 0L -> "New"
+    b.progress >= 0.995f -> "Finished"
+    else -> "${(b.progress * 100).toInt()}%"
+}
+
+@Composable
+fun SectionTitle(text: String) {
+    Text(text, color = Primary, fontSize = 21.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp,
+        modifier = Modifier.padding(top = 6.dp))
+}
+
+/** Lets a horizontal row run edge to edge inside padded content. */
+private fun Modifier.layoutBleed(by: androidx.compose.ui.unit.Dp): Modifier = this.layout { m, c ->
+    val extra = by.roundToPx() * 2
+    val p = m.measure(c.copy(minWidth = c.maxWidth + extra, maxWidth = c.maxWidth + extra))
+    layout(c.maxWidth, p.height) { p.place(-extra / 2, 0) }
 }
 
 @Composable
@@ -228,9 +249,9 @@ private fun EmptyLibrary() {
         Modifier.fillMaxWidth().padding(top = 60.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Nothing here yet", color = Primary, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp)
-        Spacer(Modifier.height(8.dp))
-        Text("Tap + to add an EPUB, PDF or TXT.", color = Secondary, fontSize = 15.sp, textAlign = TextAlign.Center)
+        Text("No books yet", color = Primary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp)
+        Spacer(Modifier.height(6.dp))
+        Text("Add an EPUB, PDF or text file with +", color = Secondary, fontSize = 15.sp, textAlign = TextAlign.Center)
     }
 }
 
@@ -242,46 +263,6 @@ private fun rememberCover(book: Book, px: Int = 600): ImageBitmap? {
     return bmp
 }
 
-/** "Now playing"-style card: the cover, blurred and enlarged, becomes its own backdrop. */
-@Composable
-private fun HeroCard(book: Book, highlights: Int, modifier: Modifier, onClick: () -> Unit) {
-    val cover = rememberCover(book)
-    val shape = RoundedCornerShape(28.dp)
-    Box(
-        modifier
-            .fillMaxWidth()
-            .bouncyClick(pressedScale = 0.97f, onClick = onClick)
-            .clip(shape)
-            .background(Card),
-    ) {
-        if (cover != null) {
-            Image(
-                cover, null, contentScale = ContentScale.Crop,
-                modifier = Modifier.matchParentSize().graphicsLayer { scaleX = 1.4f; scaleY = 1.4f }.blur(60.dp),
-            )
-        }
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.35f), Color.Black.copy(alpha = 0.65f)))))
-        Box(Modifier.matchParentSize().hairline(shape))
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Cover(book, Modifier.width(92.dp).aspectRatio(0.67f))
-            Column(Modifier.padding(start = 16.dp).weight(1f)) {
-                Text("CONTINUE READING", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
-                Spacer(Modifier.height(4.dp))
-                Text(book.title, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 23.sp)
-                if (book.author.isNotBlank()) Text(book.author, color = Color.White.copy(alpha = 0.65f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(12.dp))
-                ProgressLine(book.progress)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "${(book.progress * 100).toInt()}%" + if (highlights > 0) "  ·  $highlights highlights" else "",
-                    color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp,
-                )
-            }
-        }
-    }
-}
-
 @Composable
 fun ProgressLine(progress: Float, modifier: Modifier = Modifier) {
     val p by animateFloatAsState(progress, spring(0.9f, 200f), label = "p")
@@ -291,16 +272,22 @@ fun ProgressLine(progress: Float, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun BookCard(book: Book, modifier: Modifier, onClick: () -> Unit, onLongClick: () -> Unit) {
-    Column(modifier.bouncyClick(onLongClick = onLongClick, onClick = onClick)) {
-        Cover(book, Modifier.fillMaxWidth().aspectRatio(0.67f))
-        Spacer(Modifier.height(10.dp))
-        Text(book.title, color = Primary, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        val sub = buildList {
-            if (book.author.isNotBlank()) add(book.author)
-            if (book.progress > 0f) add("${(book.progress * 100).toInt()}%") else if (book.lastOpened == 0L) add("New")
-        }.joinToString(" · ")
-        Text(sub.ifEmpty { book.format.uppercase() }, color = Secondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun BookCard(book: Book, modifier: Modifier, onClick: () -> Unit, onMore: () -> Unit) {
+    Column(modifier) {
+        Cover(book, Modifier.fillMaxWidth().aspectRatio(0.67f).bouncyClick(onLongClick = onMore, onClick = onClick))
+        Row(Modifier.padding(top = 9.dp), verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f).bouncyClick(pressedScale = 0.98f, haptic = null, onClick = onClick)) {
+                Text(book.title, color = Primary, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    listOf(book.author, progressLabel(book)).filter { it.isNotBlank() }.joinToString(" · "),
+                    color = Secondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Box(
+                Modifier.padding(start = 4.dp).size(30.dp).bouncyClick(pressedScale = 0.8f, onClick = onMore),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Line.More, "More", tint = Secondary, modifier = Modifier.size(20.dp)) }
+        }
     }
 }
 

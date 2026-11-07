@@ -59,6 +59,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
@@ -219,46 +223,64 @@ private fun Home(
     onPickWallpaper: () -> Unit,
 ) {
     val haze = remember { HazeState() }
-    Box(Modifier.fillMaxSize()) {
+    var barVisible by remember { mutableStateOf(true) }
+    LaunchedEffect(tab) { barVisible = true }
+    // iOS 26-style: the tab bar steps aside while you scroll down, returns when you scroll up
+    val scrollWatcher = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < -4f) barVisible = false else if (available.y > 4f) barVisible = true
+                return Offset.Zero
+            }
+        }
+    }
+    Box(Modifier.fillMaxSize().nestedScroll(scrollWatcher)) {
         AnimatedContent(
             targetState = tab,
-            transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(180)) },
+            transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(160)) },
             label = "tab",
         ) { t ->
-            if (t == 0) LibraryScreen(haze, importing, onOpen = { onOpen(it, null, 0) }, onExport = onExport, onPickWallpaper = onPickWallpaper)
-            else HighlightsScreen(haze, onOpen = onOpen, onExportAll = { onExport(ExportKind.AllHighlights, null) })
+            when (t) {
+                0 -> LibraryScreen(haze, importing, onOpen = { onOpen(it, null, 0) }, onExport = onExport)
+                1 -> HighlightsScreen(haze, onOpen = onOpen, onExportAll = { onExport(ExportKind.AllHighlights, null) })
+                else -> SettingsScreen(haze, onPickWallpaper = onPickWallpaper, onExport = onExport)
+            }
         }
 
-        Row(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding()
-                .padding(start = 18.dp, end = 18.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        StatusFade(haze)
+
+        AnimatedVisibility(
+            visible = barVisible,
+            enter = slideInVertically(spring(0.8f, 500f)) { it * 2 } + fadeIn(tween(160)),
+            exit = slideOutVertically(spring(0.9f, 500f)) { it * 2 } + fadeOut(tween(160)),
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 10.dp),
         ) {
-            GlassTabBar(tab, onTab, haze, Modifier.weight(1f))
-            GlassCircle(Line.Plus, "Add book", haze, size = 62.dp, onClick = onImport)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                GlassTabBar(tab, onTab, haze)
+                AnimatedVisibility(tab == 0, enter = fadeIn() + scaleIn(initialScale = 0.6f), exit = fadeOut() + scaleOut(targetScale = 0.6f)) {
+                    GlassCircle(Line.Plus, "Add book", haze, size = 54.dp, onClick = onImport)
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun GlassTabBar(selected: Int, onSelect: (Int) -> Unit, haze: HazeState, modifier: Modifier = Modifier) {
-    val tabs = listOf("Library" to Line.Books, "Highlights" to Line.Quote)
+    val tabs = listOf("Library" to Line.Books, "Highlights" to Line.Quote, "Settings" to Line.Gear)
     val shape = RoundedCornerShape(50)
-    BoxWithConstraints(
+    val itemW = 74.dp
+    Box(
         modifier
-            .height(62.dp)
+            .width(itemW * tabs.size + 8.dp)
+            .height(54.dp)
             .glass(haze, shape, floating = true)
-            .padding(5.dp)
+            .padding(4.dp)
     ) {
-        val itemW = maxWidth / tabs.size
         val x by animateDpAsState(itemW * selected, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow), label = "pill")
-        Box(
-            Modifier.offset(x = x).width(itemW).fillMaxHeight().clip(shape)
-                .background(Color.White.copy(alpha = 0.11f))
-        )
+        Box(Modifier.offset(x = x).width(itemW).fillMaxHeight().clip(shape).background(Color.White.copy(alpha = 0.10f)))
         Row(Modifier.fillMaxSize()) {
-            tabs.forEachIndexed { i, (label, icon) -> TabItem(label, icon, i == selected, Modifier.weight(1f)) { onSelect(i) } }
+            tabs.forEachIndexed { i, (label, icon) -> TabItem(label, icon, i == selected, Modifier.width(itemW)) { onSelect(i) } }
         }
     }
 }
@@ -271,33 +293,24 @@ private fun TabItem(label: String, icon: ImageVector, active: Boolean, modifier:
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, label, tint = color, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.height(2.dp))
+        Icon(icon, label, tint = color, modifier = Modifier.size(21.dp))
+        Spacer(Modifier.height(1.dp))
         Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.Medium)
     }
 }
 
-/** iOS-style large title sitting on a progressive blur. */
+/** Just enough blur under the status bar for the clock to stay legible over content. */
 @Composable
-fun LargeTitle(
-    title: String,
-    haze: HazeState,
-    subtitle: String? = null,
-    trailing: @Composable () -> Unit = {},
-    below: @Composable () -> Unit = {},
-) {
+fun StatusFade(haze: HazeState) {
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    Box(Modifier.fillMaxWidth()) {
-        Box(Modifier.matchParentSize().topFade(haze))
-        Column(Modifier.fillMaxWidth().padding(top = top + 8.dp, start = 22.dp, end = 16.dp, bottom = 18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.weight(1f)) {
-                    Text(title, color = Primary, fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.8).sp)
-                    if (subtitle != null) Text(subtitle, color = Secondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                }
-                trailing()
-            }
-            below()
-        }
+    Box(Modifier.fillMaxWidth().height(top + 14.dp).topFade(haze))
+}
+
+/** A plain title that scrolls with the content, no bar behind it. */
+@Composable
+fun ScreenTitle(title: String, modifier: Modifier = Modifier, trailing: @Composable () -> Unit = {}) {
+    Row(modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = Primary, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.7).sp, modifier = Modifier.weight(1f))
+        trailing()
     }
 }

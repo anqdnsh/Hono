@@ -132,19 +132,33 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
         LazyVerticalStaggeredGrid(
             columns = StaggeredGridCells.Adaptive(165.dp),
             modifier = Modifier.fillMaxSize().glassBackdrop().hazeSource(haze),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = top + 164.dp, bottom = bottom + 110.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = top + 12.dp, bottom = bottom + 100.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalItemSpacing = 12.dp,
         ) {
+            item(span = StaggeredGridItemSpan.FullLine, key = "title") {
+                Column(Modifier.padding(horizontal = 4.dp)) {
+                    ScreenTitle("Highlights") {
+                        if (all.isNotEmpty()) GlassCircle(Line.Share, "Export all highlights", haze, size = 40.dp, onClick = onExportAll)
+                    }
+                    Text(
+                        if (all.isEmpty()) "Nothing saved yet" else "${all.size} saved" + if (favCount > 0) " · $favCount loved" else "",
+                        color = Secondary, fontSize = 14.sp,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Segmented(listOf("All", "Loved"), filter, { filter = it }, Modifier.widthIn(max = 260.dp))
+                    Spacer(Modifier.height(4.dp))
+                }
+            }
             if (shown.isEmpty()) {
                 item(span = StaggeredGridItemSpan.FullLine, key = "empty") {
                     Column(Modifier.fillMaxWidth().padding(top = 50.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(if (filter == 0) "Your gallery is empty" else "No favourites yet",
+                        Text(if (filter == 0) "No highlights yet" else "Nothing loved yet",
                             color = Primary, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp)
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            if (filter == 0) "While reading, hold on a sentence to highlight it.\nIn a PDF, hold and drag to frame a part of the page."
-                            else "Tap the heart on a piece to keep it here.",
+                            if (filter == 0) "Hold on a sentence while you read.\nIn a PDF, hold and drag over the part you want."
+                            else "Tap the heart on a highlight to keep it here.",
                             color = Secondary, fontSize = 15.sp, textAlign = TextAlign.Center, lineHeight = 21.sp,
                         )
                     }
@@ -154,16 +168,6 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
                 Frame(h, titles[h.bookId] ?: "", Modifier.animateItem()) { exhibit = shown.indexOf(h) }
             }
         }
-
-        LargeTitle(
-            "Highlights", haze,
-            subtitle = "${all.size} pieces · $favCount favourites",
-            trailing = { if (all.isNotEmpty()) GlassCircle(Line.Share, "Export all highlights", haze, size = 42.dp, onClick = onExportAll) },
-            below = {
-                Spacer(Modifier.height(12.dp))
-                Segmented(listOf("All", "Favourites"), filter, { filter = it }, Modifier.padding(end = 6.dp))
-            },
-        )
 
         // full-screen exhibit
         AnimatedVisibility(
@@ -295,7 +299,7 @@ private fun Exhibit(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ExhibitAction(Line.Open, "Read") { cur?.let(onOpen) }
-            ExhibitAction(if (cur?.favorite == true) Line.HeartFill else Line.Heart, "Favourite",
+            ExhibitAction(if (cur?.favorite == true) Line.HeartFill else Line.Heart, "Love",
                 tint = if (cur?.favorite == true) Color(0xFFFF375F) else Primary) {
                 cur?.let { Store.updateHighlight(it.id) { x -> x.copy(favorite = !x.favorite) } }
                 haptics.play(if (cur?.favorite == true) Haptic.ToggleOff else Haptic.Confirm)

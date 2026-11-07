@@ -81,6 +81,12 @@ object Store {
             mono = prefs.getBoolean("mono", d.mono),
             wallDim = prefs.getFloat("wallDim", d.wallDim),
             wallInReader = prefs.getBoolean("wallReader", d.wallInReader),
+            grainAmount = prefs.getFloat("grainAmt", d.grainAmount),
+            pdfMode = prefs.getInt("pdfMode", d.pdfMode),
+            haptics = prefs.getBoolean("haptics", d.haptics),
+            hapticLevel = prefs.getInt("hapticLevel", d.hapticLevel),
+            volumeKeys = prefs.getBoolean("volKeys", d.volumeKeys),
+            pageAnim = prefs.getInt("pageAnim", d.pageAnim),
         )
         initialized = true
         io.launch {
@@ -381,6 +387,8 @@ object Store {
             .putBoolean("justify", s.justify).putInt("margin", s.margin)
             .putBoolean("grain", s.grain).putBoolean("mono", s.mono)
             .putFloat("wallDim", s.wallDim).putBoolean("wallReader", s.wallInReader)
+            .putFloat("grainAmt", s.grainAmount).putInt("pdfMode", s.pdfMode)
+            .putBoolean("haptics", s.haptics).putInt("hapticLevel", s.hapticLevel).putBoolean("volKeys", s.volumeKeys).putInt("pageAnim", s.pageAnim)
             .apply()
     }
 

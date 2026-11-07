@@ -99,6 +99,12 @@ data class ReaderSettings(
     val mono: Boolean = false,   // black & white mode
     val wallDim: Float = 0.45f,  // darkening over a custom wallpaper
     val wallInReader: Boolean = false,
+    val grainAmount: Float = 0.6f,
+    val pdfMode: Int = 0,        // 0 original, 1 match page colour, 2 night (inverted)
+    val haptics: Boolean = true,
+    val hapticLevel: Int = 2,    // 0 light, 1 medium, 2 strong
+    val volumeKeys: Boolean = true,
+    val pageAnim: Int = 0,       // 0 slide, 1 fade
 )
 
 /** Para styles are packed triples: start, end, type (1 = italic, 2 = bold). */

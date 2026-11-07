@@ -240,7 +240,7 @@ fun ReaderScreen(bookId: String, jumpPara: Int?, jumpChar: Int = 0, onBack: () -
     val theme = themeFor(settings)
     val bg by animateColorAsState(theme.bg, tween(350), label = "bg")
     if (book.isPdf) {
-        Box(Modifier.fillMaxSize().background(bg).readerBackdrop(theme).paper(settings.grain, theme.light)) {
+        Box(Modifier.fillMaxSize().background(bg).readerBackdrop(theme).paper(settings.grain, theme.light, settings.grainAmount)) {
             PdfReader(book, jumpPara, settings, theme, onBack)
         }
         return
@@ -252,7 +252,7 @@ fun ReaderScreen(bookId: String, jumpPara: Int?, jumpChar: Int = 0, onBack: () -
     LaunchedEffect(bookId) { Store.markOpened(bookId) }
     BackHandler(onBack = onBack)
 
-    Box(Modifier.fillMaxSize().background(bg).readerBackdrop(theme).paper(settings.grain, theme.light)) {
+    Box(Modifier.fillMaxSize().background(bg).readerBackdrop(theme).paper(settings.grain, theme.light, settings.grainAmount)) {
         val c = content
         if (c != null) ReaderBody(book, c, jumpPara, jumpChar, settings, theme, onBack)
     }
@@ -394,6 +394,7 @@ private fun ReaderBody(
 
         // ---- page turning ----
         val offset = remember { Animatable(0f) }
+        val fade = remember { Animatable(1f) }
         var turnJob by remember { mutableStateOf<Job?>(null) }
         var pendingAnchor by remember { mutableStateOf<Anchor?>(null) }
         val turnSpring = spring<Float>(dampingRatio = 1f, stiffness = 420f)
@@ -408,6 +409,7 @@ private fun ReaderBody(
         fun turn(dir: Int, fromDrag: Boolean = false) {
             pendingAnchor?.let { anchor = it; pendingAnchor = null }
             turnJob?.cancel()
+            scope.launch { fade.snapTo(1f) }
             val target = neighbour(dir)
             chrome = false
             if (target == null) {
@@ -420,6 +422,14 @@ private fun ReaderBody(
             }
             pendingAnchor = target.start
             if (!fromDrag) haptics.play(Haptic.PageTurn)
+            if (settings.pageAnim == 1 && !fromDrag) {
+                turnJob = scope.launch {
+                    fade.animateTo(0f, tween(90))
+                    anchor = target.start; pendingAnchor = null
+                    fade.animateTo(1f, tween(170))
+                }
+                return
+            }
             turnJob = scope.launch {
                 if (!fromDrag && abs(offset.value) < 1f) offset.snapTo(0f)
                 offset.animateTo(-dir * fullW, turnSpring)
@@ -527,7 +537,7 @@ private fun ReaderBody(
                         .align(Alignment.TopCenter)
                         .padding(top = topReserve)
                         .width(contentWdp)
-                        .graphicsLayer { translationX = offset.value + d * fullW },
+                        .graphicsLayer { translationX = offset.value + d * fullW; alpha = if (d == 0) fade.value else 1f },
                     onTapHighlight = { active = it; selection = null },
                     onSelect = { s, isDragging -> selection = s; dragging = isDragging; active = null; chrome = false },
                 ) }
@@ -1021,34 +1031,16 @@ private fun MarksSheet(list: List<Highlight>, theme: ReaderTheme, jump: (Int, In
 internal fun SettingsSheet(s: ReaderSettings, theme: ReaderTheme, pdf: Boolean = false) {
     SheetTitle("Themes & Settings", theme)
     Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp).verticalScroll(rememberScrollState())) {
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            ReaderThemes.forEachIndexed { i, t ->
-                val sel = i == s.theme && !s.mono
-                val scale by animateFloatAsState(if (sel) 1.06f else 1f, spring(0.5f, 500f), label = "t")
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(
-                        Modifier
-                            .size(width = 54.dp, height = 46.dp)
-                            .bouncyClick(pressedScale = 0.88f, haptic = Haptic.Tick) { Store.updateSettings { it.copy(theme = i, mono = false) } }
-                            .graphicsLayer { scaleX = scale; scaleY = scale }
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(t.bg)
-                            .paper(s.grain, t.light)
-                            .border(if (sel) 2.dp else 0.8.dp, if (sel) theme.text else theme.text.copy(alpha = 0.18f), RoundedCornerShape(14.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) { Text("Aa", color = t.text, fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 16.sp) }
-                    Spacer(Modifier.height(5.dp))
-                    Text(t.name, color = if (sel) theme.text else theme.sub, fontFamily = Inter, fontSize = 11.sp)
-                }
-            }
-        }
+        ThemeSwatches(s, theme)
         Spacer(Modifier.height(14.dp))
         ToggleRow("Paper texture", "Fine grain and fibres, like real paper", s.grain, theme) { v -> Store.updateSettings { it.copy(grain = v) } }
         if (Wall.blurred != null) ToggleRow("Wallpaper background", "Read over a softly blurred version of your wallpaper", s.wallInReader, theme) { v -> Store.updateSettings { it.copy(wallInReader = v) } }
         ToggleRow("Black & White", "No colour, pure black screen. Easiest on battery", s.mono, theme) { v -> Store.updateSettings { it.copy(mono = v) } }
+        if (pdf) {
+            Spacer(Modifier.height(8.dp))
+            Text("PDF pages", color = theme.text, fontFamily = Inter, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
+            Segmented(listOf("Original", "Match page", "Night"), s.pdfMode, { i -> Store.updateSettings { it.copy(pdfMode = i) } }, fg = theme.text)
+        }
         if (!pdf) {
             Spacer(Modifier.height(6.dp))
             LabeledSlider("Text size", "${s.fontSize.roundToInt()}", s.fontSize, 14f..32f, theme) { v -> Store.updateSettings { it.copy(fontSize = v) } }

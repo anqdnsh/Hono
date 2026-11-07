@@ -137,6 +137,20 @@ private val invert = ColorMatrix(
     )
 )
 
+/** Inverted, then mapped onto the theme's own text/background colours so it matches the page. */
+private fun dimInvert(t: ReaderTheme): ColorMatrix {
+    val bg = t.bg; val fg = t.text
+    fun ch(b: Float, f: Float) = floatArrayOf(-(f - b), b * 255f + (f - b) * 255f)
+    val r = ch(bg.red, fg.red); val g = ch(bg.green, fg.green); val bl = ch(bg.blue, fg.blue)
+    // luminance-based so colour images become tasteful greys
+    return ColorMatrix(floatArrayOf(
+        r[0] * 0.299f, r[0] * 0.587f, r[0] * 0.114f, 0f, r[1],
+        g[0] * 0.299f, g[0] * 0.587f, g[0] * 0.114f, 0f, g[1],
+        bl[0] * 0.299f, bl[0] * 0.587f, bl[0] * 0.114f, 0f, bl[1],
+        0f, 0f, 0f, 1f, 0f,
+    ))
+}
+
 /** Where a page image lands inside its box when fitted (ContentScale.Fit). */
 private fun fitRect(box: Size, w: Int, h: Int): Rect {
     val a = w.toFloat() / h
@@ -213,9 +227,11 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     val topInset = WindowInsets.statusBarsIgnoringVisibility.asPaddingValues().calculateTopPadding()
     val bottomInset = WindowInsets.navigationBarsIgnoringVisibility.asPaddingValues().calculateBottomPadding()
 
-    val filter: ColorFilter? = when {
-        !theme.light -> ColorFilter.colorMatrix(invert)
-        theme.bg != Color.White -> ColorFilter.tint(theme.bg, BlendMode.Multiply)
+    // 0 = original pages, 1 = blend into the page colour, 2 = night (inverted)
+    val filter: ColorFilter? = when (settings.pdfMode) {
+        2 -> ColorFilter.colorMatrix(invert)
+        1 -> if (theme.light) { if (theme.bg != Color.White) ColorFilter.tint(theme.bg, BlendMode.Multiply) else null }
+             else ColorFilter.colorMatrix(dimInvert(theme))
         else -> null
     }
 
@@ -233,6 +249,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         }
 
         val offset = remember { Animatable(0f) }
+        val fade = remember { Animatable(1f) }
         var turnJob by remember { mutableStateOf<Job?>(null) }
         var pending by remember { mutableStateOf<Int?>(null) }
 
@@ -245,6 +262,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         fun turn(dir: Int, fromDrag: Boolean = false) {
             pending?.let { page = it; pending = null }
             turnJob?.cancel()
+            scope.launch { fade.snapTo(1f) }
             chrome = false
             val target = page + dir
             if (target !in 0 until count) {
@@ -257,6 +275,10 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             }
             pending = target
             if (!fromDrag) haptics.play(Haptic.PageTurn)
+            if (settings.pageAnim == 1 && !fromDrag) {
+                turnJob = scope.launch { fade.animateTo(0f, tween(90)); page = target; pending = null; fade.animateTo(1f, tween(170)) }
+                return
+            }
             turnJob = scope.launch {
                 offset.animateTo(-dir * fullW, spring(1f, 420f))
                 page = target; pending = null
@@ -370,7 +392,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                     Modifier
                         .fillMaxSize()
                         .padding(top = pageTop, bottom = pageBottom, start = 8.dp, end = 8.dp)
-                        .graphicsLayer { translationX = offset.value + dlt * fullW }
+                        .graphicsLayer { translationX = offset.value + dlt * fullW; alpha = if (dlt == 0) fade.value else 1f }
                         .let { if (dlt == 0) it.onSize { boxSize = it } else it }
                         .drawBehind {
                             val r = fitRect(size, bmp.width, bmp.height)

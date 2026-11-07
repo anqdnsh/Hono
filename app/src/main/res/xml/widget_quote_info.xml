@@ -5,6 +5,8 @@
     android:previewLayout="@layout/widget_quote"
     android:minWidth="180dp"
     android:minHeight="180dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="70dp"
     android:targetCellWidth="3"
     android:targetCellHeight="3"
     android:resizeMode="horizontal|vertical"
