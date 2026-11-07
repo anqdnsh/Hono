@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Glass Reader</string>
+    <string name="widget_continue">Continue reading</string>
+    <string name="widget_quote">Highlight of the moment</string>
+    <string name="widget_continue_desc">Jump back into your current book</string>
+    <string name="widget_quote_desc">A rotating highlight from your books</string>
+</resources>
