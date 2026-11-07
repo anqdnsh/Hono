@@ -89,11 +89,10 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
 
             item {
                 Section("Reading") {
-                    Box(Modifier.padding(vertical = 14.dp)) { ThemeSwatches(s, UiTheme, inset = 16.dp) }
-                    Line()
-                    Pad { ToggleRow("Paper texture", "Grain and faint fibres on the page", s.grain, UiTheme) { v -> set { it.copy(grain = v) } } }
-                    AnimatedVisibility(s.grain, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                        Pad { LabeledSlider("Texture strength", "${(s.grainAmount * 100).roundToInt()}%", s.grainAmount, 0.1f..1f, UiTheme) { v -> set { it.copy(grainAmount = v) } } }
+                    Pad {
+                        Label("Background")
+                        BackgroundPicker(s, Primary, onNeedWallpaper = onPickWallpaper)
+                        Spacer(Modifier.height(8.dp))
                     }
                     Line()
                     Pad {
@@ -118,7 +117,7 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
             }
 
             item {
-                Section("PDF pages", "Night inverts the page for dark reading. Match page colour blends it into your page colour.") {
+                Section("PDF pages", "Night inverts pages for reading in the dark. Match page blends pages into your background.") {
                     Pad {
                         Spacer(Modifier.height(10.dp))
                         Segmented(listOf("Original", "Match page", "Night"), s.pdfMode, { i -> set { it.copy(pdfMode = i) } })
@@ -134,7 +133,6 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
                         Column {
                             Line()
                             Pad { LabeledSlider("Dim wallpaper", "${(s.wallDim * 100).roundToInt()}%", s.wallDim, 0f..0.9f, UiTheme) { v -> set { it.copy(wallDim = v) } } }
-                            Pad { ToggleRow("Wallpaper behind pages", "Softly blurred while you read", s.wallInReader, UiTheme) { v -> set { it.copy(wallInReader = v) } } }
                             Line()
                             NavRow("Remove wallpaper", null, color = Color(0xFFFF453A), chevron = false, haptic = Haptic.Reject) { Store.clearWallpaper() }
                         }
@@ -291,4 +289,23 @@ fun ThemeSwatches(s: ReaderSettings, theme: ReaderTheme, inset: androidx.compose
             }
         }
     }
+}
+
+/** Reading background: plain white, plain black, or the user's wallpaper. */
+@Composable
+fun BackgroundPicker(s: ReaderSettings, fg: Color, onNeedWallpaper: (() -> Unit)? = null) {
+    val hasWall = Store.wallpaper.collectAsState().value != null
+    val options = buildList { add("White"); add("Black"); if (hasWall || onNeedWallpaper != null) add("Wallpaper") }
+    val selected = when {
+        s.wallInReader && hasWall -> 2
+        s.theme == 5 -> 1
+        else -> 0
+    }
+    Segmented(options, selected, { i ->
+        when (i) {
+            0 -> Store.updateSettings { it.copy(theme = 0, wallInReader = false, mono = false) }
+            1 -> Store.updateSettings { it.copy(theme = 5, wallInReader = false) }
+            else -> if (hasWall) Store.updateSettings { it.copy(wallInReader = true, mono = false) } else onNeedWallpaper?.invoke()
+        }
+    }, fg = fg)
 }

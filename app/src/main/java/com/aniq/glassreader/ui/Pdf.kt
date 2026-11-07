@@ -198,7 +198,7 @@ private class PdfDoc(file: java.io.File) : Closeable {
             y += 2
         }
         if (top < 0 || right <= left) return android.graphics.Rect(0, 0, w, h)
-        val pad = (w * 0.02f).toInt()
+        val pad = (w * 0.045f).toInt()
         return android.graphics.Rect((left - pad).coerceAtLeast(0), (top - pad).coerceAtLeast(0),
             (right + pad).coerceAtMost(w), (bottom + pad).coerceAtMost(h))
     }
@@ -407,9 +407,9 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
 
         var boxSize by remember { mutableStateOf(IntSize.Zero) }
         val cutout = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
-        val pageTop = maxOf(cutout, 6.dp)
-        val pageBottom = 22.dp
-        val sidePad = 4.dp
+        val pageTop = maxOf(cutout, 30.dp) + 10.dp
+        val pageBottom = 34.dp
+        val sidePad = 18.dp
 
         Box(
             Modifier
@@ -572,7 +572,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         val furniture by animateFloatAsState(if (chrome) 0f else 1f, tween(200), label = "f")
         Text(
             "${page + 1} of $count", color = theme.sub, fontFamily = Inter, fontSize = 11.sp,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp).graphicsLayer { alpha = furniture },
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).graphicsLayer { alpha = furniture },
         )
 
         // top controls

@@ -92,7 +92,7 @@ data class Highlight(
 data class ReaderSettings(
     val fontSize: Float = 19f,
     val lineHeight: Float = 1.6f,
-    val theme: Int = 5,          // index into ReaderThemes
+    val theme: Int = 0,          // index into ReaderThemes (0 White, 5 Black)
     val serif: Boolean = false,
     val justify: Boolean = true,
     val margin: Int = 18,

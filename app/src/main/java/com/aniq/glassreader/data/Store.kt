@@ -76,11 +76,11 @@ object Store {
         _settings.value = ReaderSettings(
             fontSize = prefs.getFloat("fontSize", d.fontSize),
             lineHeight = prefs.getFloat("lineHeight", d.lineHeight),
-            theme = prefs.getInt("theme2", d.theme),
+            theme = prefs.getInt("theme2", d.theme).let { if (it == 0 || it == 5) it else if (it >= 4) 5 else 0 },
             serif = prefs.getBoolean("serif2", d.serif),
             justify = prefs.getBoolean("justify", d.justify),
             margin = prefs.getInt("margin", d.margin),
-            grain = prefs.getBoolean("grain", d.grain),
+            grain = false,
             mono = prefs.getBoolean("mono", d.mono),
             wallDim = prefs.getFloat("wallDim", d.wallDim),
             wallInReader = prefs.getBoolean("wallReader", d.wallInReader),

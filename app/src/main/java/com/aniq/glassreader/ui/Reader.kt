@@ -363,9 +363,9 @@ private fun ReaderBody(
         val fullW = constraints.maxWidth.toFloat()
         // use the whole screen: system bars are hidden while reading, so only the camera cutout is reserved
         val cutout = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
-        val contentWdp = (maxWidth.value - settings.margin * 2f).coerceAtLeast(200f).dp
-        val topReserve = maxOf(cutout, 4.dp) + 26.dp
-        val bottomReserve = 28.dp
+        val contentWdp = (maxWidth.value - settings.margin * 2f - 16f).coerceAtLeast(200f).dp
+        val topReserve = maxOf(cutout, 30.dp) + 26.dp
+        val bottomReserve = 40.dp
         val pageHdp = maxHeight - topReserve - bottomReserve
         val widthPx = with(density) { contentWdp.roundToPx() }
         val heightPx = with(density) { pageHdp.toPx() }
@@ -563,11 +563,11 @@ private fun ReaderBody(
         Text(
             chapterTitle, color = theme.sub, fontSize = 12.sp, fontFamily = Inter, fontWeight = FontWeight.Medium,
             maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = maxOf(cutout, 4.dp) + 6.dp).widthIn(max = 280.dp)
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = maxOf(cutout, 30.dp)).widthIn(max = 280.dp)
                 .graphicsLayer { alpha = chromeAlpha },
         )
         Row(
-            Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp).width(contentWdp)
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp).width(contentWdp)
                 .graphicsLayer { alpha = chromeAlpha },
         ) {
             val s = sections[sec]
@@ -1064,10 +1064,9 @@ private fun MarksSheet(list: List<Highlight>, theme: ReaderTheme, jump: (Int, In
 internal fun SettingsSheet(s: ReaderSettings, theme: ReaderTheme, pdf: Boolean = false) {
     SheetTitle("Themes & Settings", theme)
     Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp).verticalScroll(rememberScrollState())) {
-        ThemeSwatches(s, theme)
-        Spacer(Modifier.height(14.dp))
-        ToggleRow("Paper texture", "Fine grain and fibres, like real paper", s.grain, theme) { v -> Store.updateSettings { it.copy(grain = v) } }
-        if (Wall.blurred != null) ToggleRow("Wallpaper background", "Read over a softly blurred version of your wallpaper", s.wallInReader, theme) { v -> Store.updateSettings { it.copy(wallInReader = v) } }
+        Text("Background", color = theme.text, fontFamily = Inter, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
+        BackgroundPicker(s, theme.text)
+        Spacer(Modifier.height(6.dp))
         ToggleRow("Black & White", "No colour, pure black screen. Easiest on battery", s.mono, theme) { v -> Store.updateSettings { it.copy(mono = v) } }
         if (pdf) {
             Spacer(Modifier.height(8.dp))
