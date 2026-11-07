@@ -61,6 +61,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -425,6 +426,8 @@ private fun ReaderBody(
             }
         }
         val turnNow by rememberUpdatedState<(Int) -> Unit>({ d -> turn(d) })
+        val turnRef by rememberUpdatedState<(Int, Boolean) -> Unit>({ d, f -> turn(d, f) })
+        val neighbourRef by rememberUpdatedState<(Int) -> Page?>({ neighbour(it) })
         LaunchedEffect(Unit) { ReaderKeys.turns.collect { if (sheet == Sheet.None) turnNow(it) } }
 
         fun jump(para: Int, char: Int = 0) {
@@ -466,8 +469,8 @@ private fun ReaderBody(
                             when {
                                 clearTransient() -> {}
                                 chrome -> chrome = false
-                                pos.x < size.width * 0.3f -> turn(-1)
-                                pos.x > size.width * 0.7f -> turn(1)
+                                pos.x < size.width * 0.3f -> turnRef(-1, false)
+                                pos.x > size.width * 0.7f -> turnRef(1, false)
                                 else -> chrome = true
                             }
                         },
@@ -491,7 +494,7 @@ private fun ReaderBody(
                                 o > fullW * 0.22f || v > 900f -> -1
                                 else -> 0
                             }
-                            if (dir != 0 && neighbour(dir) != null) turn(dir, fromDrag = true)
+                            if (dir != 0 && neighbourRef(dir) != null) turnRef(dir, true)
                             else turnJob = scope.launch { offset.animateTo(0f, spring(0.8f, 500f)) }
                         },
                         onDragCancel = { turnJob = scope.launch { offset.animateTo(0f, spring(0.8f, 500f)) } },
@@ -499,14 +502,14 @@ private fun ReaderBody(
                         change.consume()
                         tracker.addPosition(change.uptimeMillis, change.position)
                         val o = offset.value
-                        val blocked = (o + dx < 0 && neighbour(1) == null) || (o + dx > 0 && neighbour(-1) == null)
+                        val blocked = (o + dx < 0 && neighbourRef(1) == null) || (o + dx > 0 && neighbourRef(-1) == null)
                         scope.launch { offset.snapTo(o + if (blocked) dx * 0.25f else dx) }
                     }
                 },
         ) {
             for (d in listOf(-1, 1, 0)) {
                 val page = neighbour(d) ?: continue
-                PageView(
+                key(page.start) { PageView(
                     page = page,
                     paginator = paginator,
                     c = c,
@@ -520,7 +523,7 @@ private fun ReaderBody(
                         .graphicsLayer { translationX = offset.value + d * fullW },
                     onTapHighlight = { active = it; selection = null },
                     onSelect = { s, isDragging -> selection = s; dragging = isDragging; active = null; chrome = false },
-                )
+                ) }
             }
         }
 

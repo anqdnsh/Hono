@@ -45,6 +45,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -178,6 +179,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     val allHl by Store.highlights.collectAsState()
     val clips = remember(allHl, book.id) { allHl.filter { it.bookId == book.id && it.isClip } }
     val activeLive = active?.let { a -> clips.firstOrNull { it.id == a.id } }
+    val clipsNow by rememberUpdatedState(clips)
 
     // system bars + keep awake + save
     val view = LocalView.current
@@ -259,6 +261,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             }
         }
         val turnNow by rememberUpdatedState<(Int) -> Unit>({ turn(it) })
+        val turnRef by rememberUpdatedState<(Int, Boolean) -> Unit>({ d, f -> turn(d, f) })
         LaunchedEffect(Unit) { ReaderKeys.turns.collect { if (sheet == 0) turnNow(it) } }
 
         fun jump(p: Int) {
@@ -284,14 +287,14 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                             val hit = if (bmp != null && boxSize != IntSize.Zero) {
                                 val r = fitRect(Size(boxSize.width.toFloat(), boxSize.height.toFloat()), bmp.width, bmp.height)
                                 val nx = (pos.x - with(density) { 8.dp.toPx() } - r.left) / r.width; val ny = (pos.y - topPx - r.top) / r.height
-                                clips.firstOrNull { it.para == page && it.rect!!.let { q -> nx in q[0]..q[2] && ny in q[1]..q[3] } }
+                                clipsNow.firstOrNull { it.para == page && it.rect!!.let { q -> nx in q[0]..q[2] && ny in q[1]..q[3] } }
                             } else null
                             when {
                                 clearTransient() -> {}
                                 hit != null -> active = hit
                                 chrome -> chrome = false
-                                pos.x < size.width * 0.3f -> turn(-1)
-                                pos.x > size.width * 0.7f -> turn(1)
+                                pos.x < size.width * 0.3f -> turnRef(-1, false)
+                                pos.x > size.width * 0.7f -> turnRef(1, false)
                                 else -> chrome = true
                             }
                         },
@@ -310,7 +313,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                             val v = tracker.calculateVelocity().x
                             val o = offset.value
                             val dir = when { o < -fullW * 0.22f || v < -900f -> 1; o > fullW * 0.22f || v > 900f -> -1; else -> 0 }
-                            if (dir != 0 && page + dir in 0 until count) turn(dir, true)
+                            if (dir != 0 && page + dir in 0 until count) turnRef(dir, true)
                             else turnJob = scope.launch { offset.animateTo(0f, spring(0.8f, 500f)) }
                         },
                         onDragCancel = { turnJob = scope.launch { offset.animateTo(0f, spring(0.8f, 500f)) } },
@@ -352,6 +355,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                 val p = page + dlt
                 if (p !in 0 until count) continue
                 val bmp = bitmaps[p] ?: continue
+                key(p) {
                 val img = remember(bmp) { bmp.asImageBitmap() }
                 val pageClips = clips.filter { it.para == p }
                 Box(
@@ -382,6 +386,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                             }
                         },
                 )
+                }
             }
         }
 
