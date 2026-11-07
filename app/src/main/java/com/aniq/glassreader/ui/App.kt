@@ -246,7 +246,7 @@ private fun Home(
             label = "tab",
         ) { t ->
             when (t) {
-                0 -> LibraryScreen(haze, importing, onOpen = { onOpen(it, null, 0) }, onExport = onExport, onSettings = { settingsOpen = true })
+                0 -> LibraryScreen(haze, importing, onOpen = { onOpen(it, null, 0) }, onExport = onExport, onSettings = { settingsOpen = true }, onImport = onImport)
                 else -> HighlightsScreen(haze, onOpen = onOpen, onExportAll = { onExport(ExportKind.AllHighlights, null) }, onSettings = { settingsOpen = true })
             }
         }
@@ -271,12 +271,7 @@ private fun Home(
             exit = slideOutVertically(spring(0.9f, 500f)) { it * 2 } + fadeOut(tween(160)),
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 10.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                GlassTabBar(tab, onTab, haze)
-                AnimatedVisibility(tab == 0, enter = fadeIn() + scaleIn(initialScale = 0.6f), exit = fadeOut() + scaleOut(targetScale = 0.6f)) {
-                    GlassCircle(Line.Plus, "Add book", haze, size = 54.dp, onClick = onImport)
-                }
-            }
+            GlassTabBar(tab, onTab, haze)
         }
     }
 }

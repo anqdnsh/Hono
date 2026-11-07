@@ -79,6 +79,7 @@ fun LibraryScreen(
     onOpen: (String) -> Unit,
     onExport: (ExportKind, Book?) -> Unit,
     onSettings: () -> Unit,
+    onImport: () -> Unit,
 ) {
     val books by Store.books.collectAsState()
     val recent = remember(books) { books.filter { it.lastOpened > 0 }.sortedByDescending { it.lastOpened }.take(12) }
@@ -97,11 +98,16 @@ fun LibraryScreen(
             verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }, key = "title") {
-                ScreenTitle("Library") { GlassCircle(Line.Gear, "Settings", haze, size = 40.dp, onClick = onSettings) }
+                ScreenTitle("Library") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        GlassCircle(Line.Plus, "Add book", haze, size = 40.dp, onClick = onImport)
+                        GlassCircle(Line.Gear, "Settings", haze, size = 40.dp, onClick = onSettings)
+                    }
+                }
             }
 
             if (sorted.isEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "empty") { EmptyLibrary() }
+                item(span = { GridItemSpan(maxLineSpan) }, key = "empty") { EmptyLibrary(onImport) }
             }
             if (recent.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "recentTitle") { SectionTitle("Continue Reading") }
@@ -247,14 +253,20 @@ fun ActionSheet(visible: Boolean, haze: HazeState, onDismiss: () -> Unit, conten
 }
 
 @Composable
-private fun EmptyLibrary() {
+private fun EmptyLibrary(onImport: () -> Unit) {
     Column(
         Modifier.fillMaxWidth().padding(top = 60.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text("No books yet", color = Primary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp)
         Spacer(Modifier.height(6.dp))
-        Text("Add an EPUB, PDF or text file with +", color = Secondary, fontSize = 15.sp, textAlign = TextAlign.Center)
+        Text("EPUB, PDF and text files all work.", color = Secondary, fontSize = 15.sp, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(18.dp))
+        Text(
+            "Add a book", color = Color.Black, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.bouncyClick(onClick = onImport).clip(RoundedCornerShape(50)).background(Primary)
+                .padding(horizontal = 22.dp, vertical = 12.dp),
+        )
     }
 }
 
