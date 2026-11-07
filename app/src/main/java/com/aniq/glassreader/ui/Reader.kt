@@ -316,8 +316,8 @@ private fun ReaderBody(
         controller?.isAppearanceLightStatusBars = theme.light
         controller?.isAppearanceLightNavigationBars = theme.light
         onDispose {
-            controller?.isAppearanceLightStatusBars = false
-            controller?.isAppearanceLightNavigationBars = false
+            controller?.isAppearanceLightStatusBars = !UiMode.dark
+            controller?.isAppearanceLightNavigationBars = !UiMode.dark
         }
     }
     LaunchedEffect(controller, chrome) {

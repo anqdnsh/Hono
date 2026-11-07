@@ -303,7 +303,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     DisposableEffect(controller, theme.light) {
         controller?.isAppearanceLightStatusBars = theme.light
         controller?.isAppearanceLightNavigationBars = theme.light
-        onDispose { controller?.isAppearanceLightStatusBars = false; controller?.isAppearanceLightNavigationBars = false }
+        onDispose { controller?.isAppearanceLightStatusBars = !UiMode.dark; controller?.isAppearanceLightNavigationBars = !UiMode.dark }
     }
     LaunchedEffect(controller, chrome) {
         controller ?: return@LaunchedEffect

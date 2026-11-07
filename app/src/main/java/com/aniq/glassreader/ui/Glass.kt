@@ -68,12 +68,16 @@ val Inter = FontFamily(
 
 // ---------------- Palette (monochrome) ----------------
 
-val AppBg = Color(0xFF000000)
-val Card = Color(0xFF141416)
-val Hairline = Color.White.copy(alpha = 0.07f)
-val Primary = Color(0xFFF5F5F7)
-val Secondary = Color(0xFF8E8E93)
-val Tertiary = Color(0xFF5A5A5F)
+/** App-wide light/dark switch, readable from composition and draw code alike. */
+object UiMode { var dark by mutableStateOf(true) }
+
+val AppBg: Color get() = if (UiMode.dark) Color(0xFF000000) else Color(0xFFFFFFFF)
+val Card: Color get() = if (UiMode.dark) Color(0xFF141416) else Color(0xFFF2F2F7)
+val Hairline: Color get() = if (UiMode.dark) Color.White.copy(alpha = 0.07f) else Color.Black.copy(alpha = 0.07f)
+val Primary: Color get() = if (UiMode.dark) Color(0xFFF5F5F7) else Color(0xFF1C1C1E)
+val Secondary: Color get() = if (UiMode.dark) Color(0xFF8E8E93) else Color(0xFF8A8A8E)
+val Tertiary: Color get() = if (UiMode.dark) Color(0xFF5A5A5F) else Color(0xFFAEAEB2)
+val GlassTint: Color get() = if (UiMode.dark) Color(0xFF1C1C1E).copy(alpha = 0.52f) else Color.White.copy(alpha = 0.62f)
 
 val HighlightColors = listOf(
     Color(0xFFFFD60A), // yellow
@@ -194,10 +198,10 @@ private fun rim(light: Boolean) = Brush.linearGradient(
 fun Modifier.glass(
     state: HazeState,
     shape: Shape,
-    tint: Color = Color(0xFF1C1C1E).copy(alpha = 0.52f),
+    tint: Color = GlassTint,
     base: Color = AppBg,
     blur: Dp = 26.dp,
-    light: Boolean = false,
+    light: Boolean = !UiMode.dark,
     floating: Boolean = false,
 ): Modifier = this
     .clip(shape)
@@ -272,13 +276,20 @@ fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCover(img: androidx.com
 fun Modifier.glassBackdrop(): Modifier = this.drawBehind {
     val w = size.width; val h = size.height
     val wall = Wall.image
+    val dark = UiMode.dark
+    val wash = if (dark) Color.Black else Color.White
     if (wall != null) {
         drawCover(wall)
         drawRect(Brush.verticalGradient(
-            0f to Color.Black.copy(alpha = Wall.dim * 0.8f),
-            0.5f to Color.Black.copy(alpha = Wall.dim),
-            1f to Color.Black.copy(alpha = minOf(1f, Wall.dim + 0.25f)),
+            0f to wash.copy(alpha = Wall.dim * 0.8f),
+            0.5f to wash.copy(alpha = Wall.dim),
+            1f to wash.copy(alpha = minOf(1f, Wall.dim + 0.25f)),
         ))
+        return@drawBehind
+    }
+    if (!dark) {
+        drawRect(Color.White)
+        drawRect(Brush.verticalGradient(0f to Color(0xFFF2F2F5), 0.4f to Color.White), size = androidx.compose.ui.geometry.Size(w, h * 0.5f))
         return@drawBehind
     }
     // near-black with the faintest graphite lift at the top, like Apple Music in dark mode
@@ -324,9 +335,9 @@ fun GlassCircle(
     modifier: Modifier = Modifier,
     size: Dp = 46.dp,
     tint: Color = Primary,
-    glassTint: Color = Color(0xFF1C1C1E).copy(alpha = 0.52f),
+    glassTint: Color = GlassTint,
     base: Color = AppBg,
-    light: Boolean = false,
+    light: Boolean = !UiMode.dark,
     onClick: () -> Unit,
 ) {
     Box(

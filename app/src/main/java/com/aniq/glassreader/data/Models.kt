@@ -107,6 +107,7 @@ data class ReaderSettings(
     val volumeKeys: Boolean = true,
     val pageAnim: Int = 0,       // 0 slide, 1 fade
     val coverScreen: Boolean = false,
+    val uiMode: Int = 0,         // 0 system, 1 light, 2 dark
 )
 
 /** Para styles are packed triples: start, end, type (1 = italic, 2 = bold). */

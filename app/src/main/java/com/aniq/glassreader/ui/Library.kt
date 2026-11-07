@@ -209,7 +209,7 @@ fun SheetAction(title: String, hint: String?, color: Color = Primary, haptic: Ha
             .fillMaxWidth()
             .bouncyClick(pressedScale = 0.97f, haptic = haptic, onClick = onClick)
             .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.06f))
+            .background(Primary.copy(alpha = 0.06f))
             .padding(horizontal = 18.dp, vertical = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -244,7 +244,7 @@ fun ActionSheet(visible: Boolean, haze: HazeState, onDismiss: () -> Unit, conten
                     .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box(Modifier.width(36.dp).height(5.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.2f)))
+                Box(Modifier.width(36.dp).height(5.dp).clip(RoundedCornerShape(50)).background(Primary.copy(alpha = 0.2f)))
                 Spacer(Modifier.height(14.dp))
                 content()
             }
@@ -263,7 +263,7 @@ private fun EmptyLibrary(onImport: () -> Unit) {
         Text("EPUB, PDF and text files all work.", color = Secondary, fontSize = 15.sp, textAlign = TextAlign.Center)
         Spacer(Modifier.height(18.dp))
         Text(
-            "Add a book", color = Color.Black, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            "Add a book", color = AppBg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.bouncyClick(onClick = onImport).clip(RoundedCornerShape(50)).background(Primary)
                 .padding(horizontal = 22.dp, vertical = 12.dp),
         )

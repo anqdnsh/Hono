@@ -164,7 +164,18 @@ fun App(nav: MutableState<NavRequest?>) {
     }
     LaunchedEffect(toast) { if (toast != null) { delay(2200); toast = null } }
 
-    MaterialTheme(colorScheme = darkColorScheme(background = AppBg, surface = AppBg)) {
+    val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val dark = when (settings.uiMode) { 1 -> false; 2 -> true; else -> systemDark }
+    UiMode.dark = dark
+    val view = androidx.compose.ui.platform.LocalView.current
+    LaunchedEffect(dark, reader) {
+        val w = (view.context as? android.app.Activity)?.window ?: return@LaunchedEffect
+        if (reader == null) androidx.core.view.WindowCompat.getInsetsController(w, view).apply {
+            isAppearanceLightStatusBars = !dark; isAppearanceLightNavigationBars = !dark
+        }
+    }
+
+    MaterialTheme(colorScheme = if (dark) darkColorScheme(background = AppBg, surface = AppBg) else androidx.compose.material3.lightColorScheme(background = AppBg, surface = AppBg)) {
         CompositionLocalProvider(LocalTextStyle provides TextStyle(fontFamily = Inter, color = Primary)) {
             Box(Modifier.fillMaxSize().background(AppBg).monochrome(settings.mono)) {
                 AnimatedContent(
@@ -206,7 +217,7 @@ fun App(nav: MutableState<NavRequest?>) {
                     toast?.let { last = it }
                     Text(
                         last, color = Primary, fontSize = 14.sp, fontWeight = FontWeight.Medium,
-                        modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xF21C1C1E))
+                        modifier = Modifier.clip(RoundedCornerShape(50)).background(if (dark) Color(0xF21C1C1E) else Color(0xF2F2F2F7))
                             .padding(horizontal = 18.dp, vertical = 10.dp),
                     )
                 }
@@ -251,8 +262,6 @@ private fun Home(
             }
         }
 
-        StatusFade(haze)
-
         AnimatedVisibility(
             visible = settingsOpen,
             enter = slideInHorizontally(spring(0.9f, 420f)) { it } + fadeIn(tween(160)),
@@ -261,7 +270,6 @@ private fun Home(
             val sHaze = remember { HazeState() }
             Box(Modifier.fillMaxSize().background(AppBg)) {
                 SettingsScreen(sHaze, onPickWallpaper = onPickWallpaper, onExport = onExport, onBack = { settingsOpen = false })
-                StatusFade(sHaze)
             }
         }
 
@@ -289,7 +297,7 @@ private fun GlassTabBar(selected: Int, onSelect: (Int) -> Unit, haze: HazeState,
             .padding(4.dp)
     ) {
         val x by animateDpAsState(itemW * selected, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow), label = "pill")
-        Box(Modifier.offset(x = x).width(itemW).fillMaxHeight().clip(shape).background(Color.White.copy(alpha = 0.10f)))
+        Box(Modifier.offset(x = x).width(itemW).fillMaxHeight().clip(shape).background(Primary.copy(alpha = 0.09f)))
         Row(Modifier.fillMaxSize()) {
             tabs.forEachIndexed { i, (label, icon) -> TabItem(label, icon, i == selected, Modifier.width(itemW)) { onSelect(i) } }
         }

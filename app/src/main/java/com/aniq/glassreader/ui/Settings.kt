@@ -58,8 +58,8 @@ import dev.chrisbanes.haze.hazeSource
 import kotlin.math.roundToInt
 
 /** Colours used for controls on the (always dark) settings screen. */
-private val UiTheme = ReaderTheme("ui", Color(0xFF1C1C1E), Primary, Secondary, Primary, false, 0.3f)
-private val Group = Color(0xFF151517)
+private val UiTheme: ReaderTheme get() = ReaderTheme("ui", Card, Primary, Secondary, Primary, !UiMode.dark, 0.3f)
+private val Group: Color get() = if (UiMode.dark) Color(0xFF151517) else Color(0xFFF2F2F7)
 
 @Composable
 fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (ExportKind, Book?) -> Unit, onBack: () -> Unit) {
@@ -128,6 +128,12 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
 
             item {
                 Section("Appearance") {
+                    Pad {
+                        Label("Theme")
+                        Segmented(listOf("System", "Light", "Dark"), s.uiMode, { i -> set { it.copy(uiMode = i) } })
+                        Spacer(Modifier.height(10.dp))
+                    }
+                    Line()
                     NavRow(if (hasWall) "Change wallpaper" else "Choose wallpaper", "From your gallery", onClick = onPickWallpaper)
                     AnimatedVisibility(hasWall, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         Column {
@@ -240,7 +246,7 @@ private fun Label(text: String) {
 
 @Composable
 private fun Line(inset: androidx.compose.ui.unit.Dp = 16.dp) {
-    Box(Modifier.fillMaxWidth().padding(start = inset).height(0.6.dp).background(Color.White.copy(alpha = 0.08f)))
+    Box(Modifier.fillMaxWidth().padding(start = inset).height(0.6.dp).background(Primary.copy(alpha = 0.08f)))
 }
 
 @Composable
