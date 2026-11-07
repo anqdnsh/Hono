@@ -257,7 +257,7 @@ private fun Home(
             label = "tab",
         ) { t ->
             when (t) {
-                0 -> LibraryScreen(haze, importing, onOpen = { onOpen(it, null, 0) }, onExport = onExport, onSettings = { settingsOpen = true }, onImport = onImport)
+                0 -> LibraryScreen(haze, importing, onOpen = { onOpen(it, null, 0) }, onExport = onExport, onSettings = { settingsOpen = true }, onImport = onImport, onOpenAt = onOpen)
                 else -> HighlightsScreen(haze, onOpen = onOpen, onExportAll = { onExport(ExportKind.AllHighlights, null) }, onSettings = { settingsOpen = true })
             }
         }

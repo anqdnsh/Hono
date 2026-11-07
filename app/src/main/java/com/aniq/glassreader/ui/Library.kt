@@ -80,6 +80,7 @@ fun LibraryScreen(
     onExport: (ExportKind, Book?) -> Unit,
     onSettings: () -> Unit,
     onImport: () -> Unit,
+    onOpenAt: (String, Int, Int) -> Unit = { id, _, _ -> onOpen(id) },
 ) {
     val books by Store.books.collectAsState()
     val recent = remember(books) { books.filter { it.lastOpened > 0 }.sortedByDescending { it.lastOpened }.take(12) }
@@ -111,18 +112,26 @@ fun LibraryScreen(
             }
             if (recent.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "recentTitle") { SectionTitle("Continue Reading") }
-                item(span = { GridItemSpan(maxLineSpan) }, key = "recent") {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        contentPadding = PaddingValues(horizontal = 20.dp),
-                        modifier = Modifier.fillMaxWidth().layoutBleed(20.dp),
-                    ) {
-                        rowItems(recent, key = { it.id }) { b ->
-                            Column(Modifier.width(150.dp).bouncyClick(onLongClick = { menuFor = b }) { onOpen(b.id) }) {
-                                Cover(b, Modifier.fillMaxWidth().aspectRatio(0.67f))
-                                Spacer(Modifier.height(9.dp))
-                                Text(b.title, color = Primary, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(progressLabel(b), color = Secondary, fontSize = 13.sp, maxLines = 1)
+                item(span = { GridItemSpan(maxLineSpan) }, key = "continueCard") {
+                    ContinueCard(recent.first(), onOpen = onOpen, onOpenAt = onOpenAt, onMore = { menuFor = recent.first() })
+                }
+                if (recent.size > 1) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "alsoTitle") {
+                        Text("Also reading", color = Secondary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "recent") {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            modifier = Modifier.fillMaxWidth().layoutBleed(20.dp),
+                        ) {
+                            rowItems(recent.drop(1), key = { it.id }) { b ->
+                                Column(Modifier.width(96.dp).bouncyClick(onLongClick = { menuFor = b }) { onOpen(b.id) }) {
+                                    Cover(b, Modifier.fillMaxWidth().aspectRatio(0.67f))
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(b.title, color = Primary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(progressLabel(b), color = Secondary, fontSize = 11.sp, maxLines = 1)
+                                }
                             }
                         }
                     }
@@ -179,6 +188,69 @@ fun LibraryScreen(
             Spacer(Modifier.height(10.dp))
             SheetAction("Remove", null, Color(0xFFFF453A), haptic = Haptic.Reject) { shown?.let { Store.delete(it.id) }; confirmRemove = null }
             SheetAction("Cancel", null) { confirmRemove = null }
+        }
+    }
+}
+
+/** Widget-style card: where you are in the current book, plus its latest highlights. */
+@Composable
+private fun ContinueCard(book: Book, onOpen: (String) -> Unit, onOpenAt: (String, Int, Int) -> Unit, onMore: () -> Unit) {
+    val all by Store.highlights.collectAsState()
+    val latest = remember(all, book.id) { all.filter { it.bookId == book.id }.sortedByDescending { it.createdAt }.take(2) }
+    val count = remember(all, book.id) { all.count { it.bookId == book.id } }
+    val shape = RoundedCornerShape(28.dp)
+    Column(
+        Modifier
+            .widthIn(max = 720.dp)
+            .fillMaxWidth()
+            .bouncyClick(pressedScale = 0.98f, onLongClick = onMore) { onOpen(book.id) }
+            .clip(shape)
+            .background(Card)
+            .hairline(shape)
+            .padding(16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Cover(book, Modifier.width(76.dp).aspectRatio(0.67f))
+            Column(Modifier.padding(start = 16.dp).weight(1f)) {
+                Text(book.title, color = Primary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 22.sp)
+                if (book.author.isNotBlank()) Text(book.author, color = Secondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (book.isPdf) "Page ${book.progressIndex + 1} of ${book.totalParas}" else "${(book.progress * 100).toInt()}% read",
+                        color = Primary, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f),
+                    )
+                    Text(if (book.isPdf) "${(book.progress * 100).toInt()}%" else "", color = Secondary, fontSize = 13.sp)
+                }
+                Spacer(Modifier.height(7.dp))
+                ProgressLine(book.progress)
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.fillMaxWidth().height(0.6.dp).background(Primary.copy(alpha = 0.08f)))
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Recent highlights", color = Secondary, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            if (count > 0) Text("$count", color = Tertiary, fontSize = 13.sp)
+        }
+        if (latest.isEmpty()) {
+            Text("Hold on any sentence while reading to save it here.", color = Tertiary, fontSize = 14.sp,
+                modifier = Modifier.padding(top = 8.dp))
+        }
+        latest.forEach { h ->
+            Row(
+                Modifier.fillMaxWidth().padding(top = 10.dp)
+                    .bouncyClick(pressedScale = 0.98f) { onOpenAt(h.bookId, h.para, h.start) },
+            ) {
+                Box(Modifier.padding(top = 3.dp).width(3.dp).height(36.dp).clip(RoundedCornerShape(50))
+                    .background(HighlightColors[h.color.coerceIn(0, HighlightColors.lastIndex)]))
+                Text(
+                    if (h.isClip) "Clip from page ${h.para + 1}" else h.text.trim(),
+                    color = Primary, fontSize = 15.sp, lineHeight = 21.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 12.dp),
+                )
+            }
         }
     }
 }
@@ -282,8 +354,8 @@ private fun rememberCover(book: Book, px: Int = 600): ImageBitmap? {
 @Composable
 fun ProgressLine(progress: Float, modifier: Modifier = Modifier) {
     val p by animateFloatAsState(progress, spring(0.9f, 200f), label = "p")
-    Box(modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.16f))) {
-        Box(Modifier.fillMaxWidth(p.coerceIn(0.001f, 1f)).height(3.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.9f)))
+    Box(modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)).background(Primary.copy(alpha = 0.12f))) {
+        Box(Modifier.fillMaxWidth(p.coerceIn(0.001f, 1f)).height(4.dp).clip(RoundedCornerShape(50)).background(Primary.copy(alpha = 0.85f)))
     }
 }
 
