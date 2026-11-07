@@ -9,8 +9,6 @@ import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
 import android.view.LayoutInflater
 import android.widget.ImageView
-import android.widget.ProgressBar
-import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.window.area.WindowAreaCapability
 import androidx.window.area.WindowAreaController
@@ -84,15 +82,9 @@ class CoverDisplay(private val activity: Activity, private val scope: CoroutineS
 
     private fun buildView(s: WindowAreaSessionPresenter, bookId: String): android.view.View {
         val v = LayoutInflater.from(s.context).inflate(R.layout.cover_display, null)
-        val b = Store.book(bookId)
-        val cover = Store.cover(bookId, 900)
-        if (cover != null) {
-            v.findViewById<ImageView>(R.id.cover).setImageBitmap(rounded(cover))
-            v.findViewById<ImageView>(R.id.backdrop).setImageBitmap(Bitmap.createScaledBitmap(cover, 24, (24f * cover.height / cover.width).toInt().coerceAtLeast(1), true))
-        } else v.findViewById<ImageView>(R.id.cover).setImageResource(R.mipmap.ic_launcher)
-        v.findViewById<TextView>(R.id.title).text = b?.title ?: ""
-        v.findViewById<TextView>(R.id.author).text = b?.author ?: ""
-        v.findViewById<ProgressBar>(R.id.progress).progress = ((b?.progress ?: 0f) * 1000).toInt()
+        val cover = Store.cover(bookId, 1200)
+        val iv = v.findViewById<ImageView>(R.id.cover)
+        if (cover != null) iv.setImageBitmap(rounded(cover)) else iv.setImageResource(R.mipmap.ic_launcher)
         return v
     }
 
