@@ -30,6 +30,15 @@ object BookParser {
     private fun attrs(tag: String): Map<String, String> =
         attrRe.findAll(tag).associate { m -> m.groupValues[1].lowercase() to (m.groups[2]?.value ?: m.groups[3]?.value ?: "") }
 
+    internal fun resolveLink(docPath: String, href: String): String {
+        if (href.startsWith("#")) return docPath + href
+        if (Regex("^[a-zA-Z][a-zA-Z0-9+.-]*:").containsMatchIn(href)) return href // external
+        val dir = docPath.substringBeforeLast('/', "")
+        val frag = href.substringAfter('#', "")
+        val path = resolve(dir, href)
+        return if (frag.isEmpty()) path else "$path#$frag"
+    }
+
     private fun resolve(base: String, href: String): String {
         val clean = try { URLDecoder.decode(href.substringBefore('#'), "UTF-8") } catch (e: Exception) { href.substringBefore('#') }
         val parts = ArrayList<String>()
@@ -133,11 +142,14 @@ object BookParser {
 
             val paras = ArrayList<Para>(4096)
             val chapters = ArrayList<Chapter>()
+            val anchors = HashMap<String, Int>()
+            val hrefs = ArrayList<String>()
             for (item in spine) {
                 if (!item.type.contains("html") && !item.href.endsWith("html", true) && !item.href.endsWith("htm", true)) continue
                 val html = read(item.href) ?: continue
                 val startIdx = paras.size
-                HtmlText.toParas(html, paras)
+                anchors.putIfAbsent(item.href, startIdx)
+                HtmlText.toParas(html, paras, item.href, anchors, hrefs)
                 if (paras.size == startIdx) continue
                 val t = toc[item.href]
                     ?: paras[startIdx].takeIf { it.heading && it.text.length < 80 }?.text
@@ -145,7 +157,12 @@ object BookParser {
             }
             if (paras.isEmpty()) error("This EPUB has no readable text")
             if (chapters.isEmpty() || chapters[0].para != 0) chapters.add(0, Chapter(title, 0))
-            return ParsedBook(title, author, BookContent(paras, chapters), cover)
+            // resolve every link to the paragraph it points at (-1 = outside the book)
+            val links = IntArray(hrefs.size) { i ->
+                val h = hrefs[i]
+                anchors[h] ?: anchors[h.substringBefore('#')] ?: -1
+            }.map { it.coerceAtMost(paras.size - 1) }.toIntArray()
+            return ParsedBook(title, author, BookContent(paras, chapters, links), cover)
         }
     }
 
@@ -177,7 +194,7 @@ object BookParser {
 
     // ---------------- Binary cache (fast re-open) ----------------
 
-    private const val MAGIC = 0x47524331 // "GRC1"
+    private const val MAGIC = 0x47524332 // "GRC2"
 
     fun writeCache(c: BookContent, f: File) {
         try {
@@ -195,6 +212,7 @@ object BookParser {
                     val b = ch.title.toByteArray(Charsets.UTF_8)
                     o.writeInt(b.size); o.write(b); o.writeInt(ch.para)
                 }
+                o.writeInt(c.links.size); c.links.forEach { o.writeInt(it) }
             }
         } catch (e: Exception) { f.delete() }
     }
@@ -218,7 +236,8 @@ object BookParser {
                     val b = ByteArray(i.readInt()); i.readFully(b)
                     chapters.add(Chapter(String(b, Charsets.UTF_8), i.readInt()))
                 }
-                BookContent(paras, chapters)
+                val links = IntArray(i.readInt()) { i.readInt() }
+                BookContent(paras, chapters, links)
             }
         } catch (e: Exception) { null }
     }
@@ -276,7 +295,16 @@ object HtmlText {
     private val italicTags = hashSetOf("i", "em", "cite", "var", "dfn")
     private val boldTags = hashSetOf("b", "strong")
 
-    fun toParas(html: String, out: MutableList<Para>) {
+    private val idRe = Regex("""\b(?:id|name)\s*=\s*["']([^"']+)["']""")
+    private val hrefRe = Regex("""\bhref\s*=\s*["']([^"']+)["']""")
+
+    fun toParas(
+        html: String,
+        out: MutableList<Para>,
+        docPath: String = "",
+        anchors: MutableMap<String, Int>? = null,
+        hrefs: MutableList<String>? = null,
+    ) {
         val bodyAt = html.indexOf("<body", ignoreCase = true)
         var i = if (bodyAt >= 0) bodyAt else 0
         val n = html.length
@@ -285,6 +313,7 @@ object HtmlText {
         var italicDepth = 0; var italicStart = 0
         var boldDepth = 0; var boldStart = 0
         var heading = false
+        var linkStart = -1; var linkIdx = -1
 
         fun flush() {
             // trim trailing whitespace
@@ -292,6 +321,7 @@ object HtmlText {
             while (end > 0 && sb[end - 1].isWhitespace()) end--
             if (italicDepth > 0 && end > italicStart) { styles.add(italicStart); styles.add(end); styles.add(1) }
             if (boldDepth > 0 && end > boldStart) { styles.add(boldStart); styles.add(end); styles.add(2) }
+            if (linkStart >= 0 && end > linkStart) { styles.add(linkStart); styles.add(end); styles.add(com.aniq.glassreader.data.LINK_BASE + linkIdx) }
             if (end > 0) {
                 val text = sb.substring(0, end)
                 val arr = ArrayList<Int>(styles.size)
@@ -305,6 +335,7 @@ object HtmlText {
             }
             sb.setLength(0); styles.clear()
             italicStart = 0; boldStart = 0
+            if (linkStart >= 0) linkStart = 0
         }
 
         fun appendSpace() {
@@ -329,6 +360,23 @@ object HtmlText {
                     val raw = tag.trimStart('/', '!', '?').takeWhile { it.isLetterOrDigit() || it == ':' }.lowercase()
                     val name = raw.substringAfter(':')
                     val selfClose = tag.endsWith("/")
+                    if (!isEnd && anchors != null && (tag.contains("id=") || tag.contains("name="))) {
+                        idRe.find(tag)?.let { m ->
+                            if (name in blockTags) flush()
+                            anchors.putIfAbsent("$docPath#${m.groupValues[1]}", out.size)
+                        }
+                    }
+                    if (name == "a" && hrefs != null) {
+                        if (!isEnd) {
+                            val href = hrefRe.find(tag)?.groupValues?.get(1)
+                            if (href != null && !href.startsWith("http") && !href.startsWith("mailto")) {
+                                hrefs.add(BookParser.resolveLink(docPath, href)); linkIdx = hrefs.size - 1; linkStart = sb.length
+                            }
+                        } else if (linkStart >= 0) {
+                            if (sb.length > linkStart) { styles.add(linkStart); styles.add(sb.length); styles.add(com.aniq.glassreader.data.LINK_BASE + linkIdx) }
+                            linkStart = -1
+                        }
+                    }
                     when {
                         name in skipTags && !isEnd && !selfClose -> {
                             val e = html.indexOf("</$raw", i, ignoreCase = true)

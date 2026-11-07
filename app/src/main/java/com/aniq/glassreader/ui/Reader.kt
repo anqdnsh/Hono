@@ -164,7 +164,12 @@ private fun annotate(para: Para): AnnotatedString = buildAnnotatedString {
     append(para.text)
     var k = 0
     while (k + 2 < para.styles.size) {
-        val st = if (para.styles[k + 2] == 1) SpanStyle(fontStyle = FontStyle.Italic) else SpanStyle(fontWeight = FontWeight.Bold)
+        val t = para.styles[k + 2]
+        val st = when {
+            t == 1 -> SpanStyle(fontStyle = FontStyle.Italic)
+            t == 2 -> SpanStyle(fontWeight = FontWeight.Bold)
+            else -> SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)
+        }
         addStyle(st, para.styles[k], para.styles[k + 1])
         k += 3
     }
@@ -456,6 +461,7 @@ private fun ReaderBody(
         }
 
         BackHandler(enabled = selection != null || active != null || sheet != Sheet.None) { clearTransient() }
+        val jumpRef by rememberUpdatedState<(Int) -> Unit>({ p -> jump(p) })
 
         fun commit(color: Int) {
             val s = selection ?: return
@@ -545,6 +551,7 @@ private fun ReaderBody(
                         .graphicsLayer { translationX = offset.value + d * fullW; alpha = if (d == 0) fade.value else 1f },
                     onTapHighlight = { active = it; selection = null },
                     onSelect = { s, isDragging -> selection = s; dragging = isDragging; active = null; chrome = false },
+                    onLink = { target -> haptics.play(Haptic.Tick); jumpRef(target) },
                 ) }
             }
         }
@@ -720,6 +727,7 @@ private fun PageView(
     modifier: Modifier,
     onTapHighlight: (Highlight) -> Unit,
     onSelect: (Sel, Boolean) -> Unit,
+    onLink: (Int) -> Unit = {},
 ) {
     val density = LocalDensity.current
     Column(modifier) {
@@ -735,6 +743,8 @@ private fun PageView(
                 theme = theme,
                 onTapHighlight = onTapHighlight,
                 onSelect = onSelect,
+                onLink = onLink,
+                links = c.links,
                 modifier = Modifier
                     .clipToBounds()
                     .layout { m, cons ->
@@ -786,8 +796,11 @@ private fun ParaText(
     onTapHighlight: (Highlight) -> Unit,
     onSelect: (Sel, Boolean) -> Unit,
     modifier: Modifier,
+    onLink: (Int) -> Unit = {},
+    links: IntArray = IntArray(0),
 ) {
     val text = para.text
+    val link by rememberUpdatedState(onLink)
     val annotated = remember(para) { annotate(para) }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     val hl by rememberUpdatedState(highlights)
@@ -820,9 +833,24 @@ private fun ParaText(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val off = layout?.getOffsetForPosition(down.position) ?: -1
-                    val h = hl.firstOrNull { off >= it.start && off < it.end } ?: return@awaitEachGesture
+                    val h = hl.firstOrNull { off >= it.start && off < it.end }
+                    var target = -1
+                    if (h == null) {
+                        var k = 0
+                        while (k + 2 < para.styles.size) {
+                            val t = para.styles[k + 2]
+                            if (t >= com.aniq.glassreader.data.LINK_BASE && off >= para.styles[k] && off < para.styles[k + 1]) {
+                                target = links.getOrElse(t - com.aniq.glassreader.data.LINK_BASE) { -1 }; break
+                            }
+                            k += 3
+                        }
+                        if (target < 0) return@awaitEachGesture
+                    }
                     val up = waitForUpOrCancellation()
-                    if (up != null && up.uptimeMillis - down.uptimeMillis < 400) { up.consume(); tapHl(h) }
+                    if (up != null && up.uptimeMillis - down.uptimeMillis < 400) {
+                        up.consume()
+                        if (h != null) tapHl(h) else link(target)
+                    }
                 }
             }
             // long-press to highlight: release = sentence, drag = exact words

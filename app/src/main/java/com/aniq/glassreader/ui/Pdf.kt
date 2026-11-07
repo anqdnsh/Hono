@@ -109,8 +109,11 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+/** A tappable link on a page: normalised bounds, and either a page to go to or a URL. */
+private class PdfLink(val r: android.graphics.RectF, val page: Int, val uri: String?)
+
 /** A rendered page plus the rectangle (in bitmap pixels) that actually has content. */
-private class Rendered(val bmp: Bitmap, val crop: android.graphics.Rect)
+private class Rendered(val bmp: Bitmap, val crop: android.graphics.Rect, val links: List<PdfLink> = emptyList())
 
 /** Thin wrapper around the platform PdfRenderer. Only ever touched from [paginationThread]. */
 private class PdfDoc(file: java.io.File) : Closeable {
@@ -125,8 +128,24 @@ private class PdfDoc(file: java.io.File) : Closeable {
             val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             bmp.eraseColor(android.graphics.Color.WHITE)
             p.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            return Rendered(bmp, contentBounds(bmp))
+            val links = if (android.os.Build.VERSION.SDK_INT >= 35) runCatching { pageLinks(p) }.getOrDefault(emptyList()) else emptyList()
+            return Rendered(bmp, contentBounds(bmp), links)
         }
+    }
+
+    @androidx.annotation.RequiresApi(35)
+    private fun pageLinks(p: PdfRenderer.Page): List<PdfLink> {
+        val pw = p.width.toFloat(); val ph = p.height.toFloat()
+        fun norm(r: android.graphics.RectF) = android.graphics.RectF(r.left / pw, r.top / ph, r.right / pw, r.bottom / ph)
+        val out = ArrayList<PdfLink>()
+        for (g in p.gotoLinks) {
+            val dest = g.destination.pageNumber
+            for (r in g.bounds) out.add(PdfLink(norm(r), dest, null))
+        }
+        for (l in p.linkContents) {
+            for (r in l.bounds) out.add(PdfLink(norm(r), -1, l.uri.toString()))
+        }
+        return out
     }
 
     /** Finds the inked area so blank page margins can be trimmed away. */
@@ -226,6 +245,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val haptics = rememberHaptics()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val density = LocalDensity.current
     val count = d.count
     var page by remember { mutableIntStateOf((jumpPage ?: book.progressIndex).coerceIn(0, count - 1)) }
@@ -342,6 +362,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             scope.launch { offset.snapTo(0f) }
             page = p.coerceIn(0, count - 1)
         }
+        val jumpRef by rememberUpdatedState<(Int) -> Unit>({ p -> jump(p) })
 
         var boxSize by remember { mutableStateOf(IntSize.Zero) }
         val cutout = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
@@ -363,6 +384,13 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                                 val n = toPage(rd, Size(boxSize.width.toFloat(), boxSize.height.toFloat()),
                                     Offset(pos.x - with(density) { sidePad.toPx() }, pos.y - topPx))
                                 val nx = n.x; val ny = n.y
+                                val lk = rd.links.firstOrNull { it.r.contains(nx, ny) }
+                                if (lk != null && region == null && active == null && sheet == 0) {
+                                    haptics.play(Haptic.Tick)
+                                    if (lk.page >= 0) jumpRef(lk.page)
+                                    else lk.uri?.let { u -> runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u))) } }
+                                    return@detectTapGestures
+                                }
                                 clipsNow.firstOrNull { it.para == page && it.rect!!.let { q -> nx in q[0]..q[2] && ny in q[1]..q[3] } }
                             } else null
                             when {

@@ -113,7 +113,10 @@ class Para(val text: String, val heading: Boolean, val styles: IntArray)
 
 class Chapter(val title: String, val para: Int)
 
-class BookContent(val paras: List<Para>, val chapters: List<Chapter>) {
+/** Style type ≥ LINK_BASE marks an internal link; (type - LINK_BASE) indexes [BookContent.links]. */
+const val LINK_BASE = 100
+
+class BookContent(val paras: List<Para>, val chapters: List<Chapter>, val links: IntArray = IntArray(0)) {
     fun chapterAt(para: Int): Chapter? {
         var lo = 0; var hi = chapters.size - 1; var ans: Chapter? = null
         while (lo <= hi) {
