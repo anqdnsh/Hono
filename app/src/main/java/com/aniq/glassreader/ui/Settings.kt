@@ -62,7 +62,7 @@ private val UiTheme = ReaderTheme("ui", Color(0xFF1C1C1E), Primary, Secondary, P
 private val Group = Color(0xFF151517)
 
 @Composable
-fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (ExportKind, Book?) -> Unit) {
+fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (ExportKind, Book?) -> Unit, onBack: () -> Unit) {
     val s by Store.settings.collectAsState()
     val books by Store.books.collectAsState()
     val all by Store.highlights.collectAsState()
@@ -79,7 +79,13 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
             contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = top + 12.dp, bottom = bottom + 100.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            item { Box(Modifier.widthIn(max = 640.dp)) { ScreenTitle("Settings") } }
+            item {
+                Row(Modifier.widthIn(max = 640.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    GlassCircle(Line.Back, "Back", haze, size = 40.dp, onClick = onBack)
+                    Spacer(Modifier.width(14.dp))
+                    Box(Modifier.weight(1f)) { ScreenTitle("Settings") }
+                }
+            }
 
             item {
                 Section("Reading") {

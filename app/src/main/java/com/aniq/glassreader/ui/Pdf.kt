@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -108,21 +109,48 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+/** A rendered page plus the rectangle (in bitmap pixels) that actually has content. */
+private class Rendered(val bmp: Bitmap, val crop: android.graphics.Rect)
+
 /** Thin wrapper around the platform PdfRenderer. Only ever touched from [paginationThread]. */
 private class PdfDoc(file: java.io.File) : Closeable {
     private val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     private val renderer = PdfRenderer(pfd)
     val count = renderer.pageCount
 
-    fun render(index: Int, targetW: Int): Bitmap {
+    fun render(index: Int, targetW: Int): Rendered {
         renderer.openPage(index).use { p ->
-            val w = targetW.coerceIn(200, 2400)
+            val w = targetW.coerceIn(200, 2200)
             val h = (w * p.height.toFloat() / p.width).roundToInt().coerceAtLeast(1)
             val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             bmp.eraseColor(android.graphics.Color.WHITE)
             p.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            return bmp
+            return Rendered(bmp, contentBounds(bmp))
         }
+    }
+
+    /** Finds the inked area so blank page margins can be trimmed away. */
+    private fun contentBounds(b: Bitmap): android.graphics.Rect {
+        val w = b.width; val h = b.height
+        val row = IntArray(w)
+        var top = -1; var bottom = -1; var left = w; var right = -1
+        var y = 0
+        while (y < h) {
+            b.getPixels(row, 0, w, 0, y, w, 1)
+            var x = 0; var any = false
+            while (x < w) {
+                val c = row[x]
+                val lum = ((c shr 16 and 0xFF) * 3 + (c shr 8 and 0xFF) * 6 + (c and 0xFF)) / 10
+                if (lum < 235) { any = true; if (x < left) left = x; if (x > right) right = x }
+                x += 2
+            }
+            if (any) { if (top < 0) top = y; bottom = y }
+            y += 2
+        }
+        if (top < 0 || right <= left) return android.graphics.Rect(0, 0, w, h)
+        val pad = (w * 0.02f).toInt()
+        return android.graphics.Rect((left - pad).coerceAtLeast(0), (top - pad).coerceAtLeast(0),
+            (right + pad).coerceAtMost(w), (bottom + pad).coerceAtMost(h))
     }
 
     override fun close() { renderer.close(); pfd.close() }
@@ -149,6 +177,24 @@ private fun dimInvert(t: ReaderTheme): ColorMatrix {
         bl[0] * 0.299f, bl[0] * 0.587f, bl[0] * 0.114f, 0f, bl[1],
         0f, 0f, 0f, 1f, 0f,
     ))
+}
+
+/** Box coordinates → normalised full-page coordinates (accounts for trimmed margins). */
+private fun toPage(rd: Rendered, box: Size, p: Offset): Offset {
+    val cr = rd.crop
+    val r = fitRect(box, cr.width(), cr.height())
+    val bx = cr.left + (p.x - r.left) / r.width * cr.width()
+    val by = cr.top + (p.y - r.top) / r.height * cr.height()
+    return Offset(bx / rd.bmp.width, by / rd.bmp.height)
+}
+
+/** Normalised full-page coordinates → box coordinates. */
+private fun fromPage(rd: Rendered, r: Rect, nx: Float, ny: Float): Offset {
+    val cr = rd.crop
+    return Offset(
+        r.left + (nx * rd.bmp.width - cr.left) / cr.width() * r.width,
+        r.top + (ny * rd.bmp.height - cr.top) / cr.height() * r.height,
+    )
 }
 
 /** Where a page image lands inside its box when fitted (ContentScale.Fit). */
@@ -189,7 +235,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     var selecting by remember { mutableStateOf(false) }
     var active by remember { mutableStateOf<Highlight?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
-    val bitmaps = remember { mutableStateMapOf<Int, Bitmap>() }
+    val bitmaps = remember { mutableStateMapOf<Int, Rendered>() }
 
     val allHl by Store.highlights.collectAsState()
     val clips = remember(allHl, book.id) { allHl.filter { it.bookId == book.id && it.isClip } }
@@ -239,7 +285,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fullW = constraints.maxWidth.toFloat()
-        val renderW = (constraints.maxWidth * 1.25f).roundToInt()
+        val renderW = (constraints.maxWidth * 1.3f).roundToInt()
 
         LaunchedEffect(page, renderW) {
             for (p in listOf(page, page + 1, page - 1)) {
@@ -298,8 +344,10 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         }
 
         var boxSize by remember { mutableStateOf(IntSize.Zero) }
-        val pageTop = topInset + 34.dp
-        val pageBottom = bottomInset + 34.dp
+        val cutout = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
+        val pageTop = maxOf(cutout, 6.dp)
+        val pageBottom = 22.dp
+        val sidePad = 4.dp
 
         Box(
             Modifier
@@ -309,11 +357,12 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                     detectTapGestures(
                         onTap = { pos ->
                             // tapping an existing clip opens its actions
-                            val bmp = bitmaps[page]
+                            val rd = bitmaps[page]
                             val topPx = with(density) { pageTop.toPx() }
-                            val hit = if (bmp != null && boxSize != IntSize.Zero) {
-                                val r = fitRect(Size(boxSize.width.toFloat(), boxSize.height.toFloat()), bmp.width, bmp.height)
-                                val nx = (pos.x - with(density) { 8.dp.toPx() } - r.left) / r.width; val ny = (pos.y - topPx - r.top) / r.height
+                            val hit = if (rd != null && boxSize != IntSize.Zero) {
+                                val n = toPage(rd, Size(boxSize.width.toFloat(), boxSize.height.toFloat()),
+                                    Offset(pos.x - with(density) { sidePad.toPx() }, pos.y - topPx))
+                                val nx = n.x; val ny = n.y
                                 clipsNow.firstOrNull { it.para == page && it.rect!!.let { q -> nx in q[0]..q[2] && ny in q[1]..q[3] } }
                             } else null
                             when {
@@ -360,7 +409,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                     // hold, then drag to frame a region of the page
                     var start = Offset.Zero
                     val topPx = pageTop.toPx()
-                    val padPx = 8.dp.toPx()
+                    val padPx = sidePad.toPx()
                     detectDragGesturesAfterLongPress(
                         onDragStart = { pos ->
                             start = Offset(pos.x - padPx, pos.y - topPx)
@@ -386,28 +435,32 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             for (dlt in listOf(-1, 1, 0)) {
                 val p = page + dlt
                 if (p !in 0 until count) continue
-                val bmp = bitmaps[p] ?: continue
+                val rd = bitmaps[p] ?: continue
                 key(p) {
-                val img = remember(bmp) { bmp.asImageBitmap() }
+                val img = remember(rd) { rd.bmp.asImageBitmap() }
                 val pageClips = clips.filter { it.para == p }
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .padding(top = pageTop, bottom = pageBottom, start = 8.dp, end = 8.dp)
+                        .padding(top = pageTop, bottom = pageBottom, start = sidePad, end = sidePad)
                         .graphicsLayer { translationX = offset.value + dlt * fullW; alpha = if (dlt == 0) fade.value else 1f }
                         .let { if (dlt == 0) it.onSize { boxSize = it } else it }
                         .drawBehind {
-                            val r = fitRect(size, bmp.width, bmp.height)
+                            val cr = rd.crop
+                            val r = fitRect(size, cr.width(), cr.height())
                             drawImage(
                                 img,
+                                srcOffset = IntOffset(cr.left, cr.top),
+                                srcSize = IntSize(cr.width(), cr.height()),
                                 dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
                                 dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
                                 colorFilter = filter,
                             )
                             for (h in pageClips) {
                                 val q = h.rect!!
-                                val tl = Offset(r.left + q[0] * r.width, r.top + q[1] * r.height)
-                                val sz = Size((q[2] - q[0]) * r.width, (q[3] - q[1]) * r.height)
+                                val a = fromPage(rd, r, q[0], q[1]); val b = fromPage(rd, r, q[2], q[3])
+                                val tl = a
+                                val sz = Size(b.x - a.x, b.y - a.y)
                                 val c = HighlightColors[h.color.coerceIn(0, HighlightColors.lastIndex)]
                                 drawRoundRect(c.copy(alpha = 0.18f), tl, sz, CornerRadius(14f))
                                 drawRoundRect(c.copy(alpha = 0.9f), tl, sz, CornerRadius(14f), style = Stroke(3f))
@@ -426,7 +479,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         val furniture by animateFloatAsState(if (chrome) 0f else 1f, tween(200), label = "f")
         Text(
             "${page + 1} of $count", color = theme.sub, fontFamily = Inter, fontSize = 11.sp,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomInset + 12.dp).graphicsLayer { alpha = furniture },
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp).graphicsLayer { alpha = furniture },
         )
 
         // top controls
@@ -483,13 +536,13 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         Toolbar(visible = region != null && !selecting, haze, theme, bottomInset) {
             HighlightColors.forEachIndexed { i, col ->
                 ColorDot(col, false) {
-                    val rg = region; val bmp = bitmaps[page]
-                    if (rg != null && bmp != null && boxSize != IntSize.Zero) {
-                        val r = fitRect(Size(boxSize.width.toFloat(), boxSize.height.toFloat()), bmp.width, bmp.height)
-                        val l = ((rg.left - r.left) / r.width).coerceIn(0f, 1f)
-                        val t = ((rg.top - r.top) / r.height).coerceIn(0f, 1f)
-                        val rr = ((rg.right - r.left) / r.width).coerceIn(0f, 1f)
-                        val b = ((rg.bottom - r.top) / r.height).coerceIn(0f, 1f)
+                    val rg = region; val rd = bitmaps[page]
+                    if (rg != null && rd != null && boxSize != IntSize.Zero) {
+                        val bmp = rd.bmp
+                        val box = Size(boxSize.width.toFloat(), boxSize.height.toFloat())
+                        val p0 = toPage(rd, box, rg.topLeft); val p1 = toPage(rd, box, rg.bottomRight)
+                        val l = p0.x.coerceIn(0f, 1f); val t = p0.y.coerceIn(0f, 1f)
+                        val rr = p1.x.coerceIn(0f, 1f); val b = p1.y.coerceIn(0f, 1f)
                         if (rr - l > 0.02f && b - t > 0.02f) {
                             val crop = Bitmap.createBitmap(
                                 bmp, (l * bmp.width).toInt(), (t * bmp.height).toInt(),

@@ -94,7 +94,7 @@ data class ReaderSettings(
     val theme: Int = 5,          // index into ReaderThemes
     val serif: Boolean = false,
     val justify: Boolean = true,
-    val margin: Int = 26,
+    val margin: Int = 18,
     val grain: Boolean = false,  // paper texture
     val mono: Boolean = false,   // black & white mode
     val wallDim: Float = 0.45f,  // darkening over a custom wallpaper

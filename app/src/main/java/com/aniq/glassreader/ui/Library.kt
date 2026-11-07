@@ -78,6 +78,7 @@ fun LibraryScreen(
     importing: Boolean,
     onOpen: (String) -> Unit,
     onExport: (ExportKind, Book?) -> Unit,
+    onSettings: () -> Unit,
 ) {
     val books by Store.books.collectAsState()
     val recent = remember(books) { books.filter { it.lastOpened > 0 }.sortedByDescending { it.lastOpened }.take(12) }
@@ -95,7 +96,9 @@ fun LibraryScreen(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
-            item(span = { GridItemSpan(maxLineSpan) }, key = "title") { ScreenTitle("Library") }
+            item(span = { GridItemSpan(maxLineSpan) }, key = "title") {
+                ScreenTitle("Library") { GlassCircle(Line.Gear, "Settings", haze, size = 40.dp, onClick = onSettings) }
+            }
 
             if (sorted.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "empty") { EmptyLibrary() }

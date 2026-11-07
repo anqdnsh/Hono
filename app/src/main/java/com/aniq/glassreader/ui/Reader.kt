@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -355,9 +356,11 @@ private fun ReaderBody(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fullW = constraints.maxWidth.toFloat()
-        val contentWdp = min(maxWidth.value - settings.margin * 2f, 680f).dp
-        val topReserve = topInset + 46.dp
-        val bottomReserve = bottomInset + 42.dp
+        // use the whole screen: system bars are hidden while reading, so only the camera cutout is reserved
+        val cutout = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
+        val contentWdp = (maxWidth.value - settings.margin * 2f).coerceAtLeast(200f).dp
+        val topReserve = maxOf(cutout, 4.dp) + 26.dp
+        val bottomReserve = 28.dp
         val pageHdp = maxHeight - topReserve - bottomReserve
         val widthPx = with(density) { contentWdp.roundToPx() }
         val heightPx = with(density) { pageHdp.toPx() }
@@ -553,11 +556,11 @@ private fun ReaderBody(
         Text(
             chapterTitle, color = theme.sub, fontSize = 12.sp, fontFamily = Inter, fontWeight = FontWeight.Medium,
             maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = topInset + 14.dp).widthIn(max = 280.dp)
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = maxOf(cutout, 4.dp) + 6.dp).widthIn(max = 280.dp)
                 .graphicsLayer { alpha = chromeAlpha },
         )
         Row(
-            Modifier.align(Alignment.BottomCenter).padding(bottom = bottomInset + 14.dp).width(contentWdp)
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp).width(contentWdp)
                 .graphicsLayer { alpha = chromeAlpha },
         ) {
             val s = sections[sec]

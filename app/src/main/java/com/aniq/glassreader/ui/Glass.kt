@@ -200,7 +200,6 @@ fun Modifier.glass(
     light: Boolean = false,
     floating: Boolean = false,
 ): Modifier = this
-    .then(if (floating) Modifier.shadow(28.dp, shape, clip = false, ambientColor = Color.Black, spotColor = Color.Black) else Modifier)
     .clip(shape)
     .hazeEffect(
         state = state,

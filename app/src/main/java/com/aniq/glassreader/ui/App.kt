@@ -15,6 +15,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
@@ -223,6 +226,8 @@ private fun Home(
     onPickWallpaper: () -> Unit,
 ) {
     val haze = remember { HazeState() }
+    var settingsOpen by remember { mutableStateOf(false) }
+    BackHandler(enabled = settingsOpen) { settingsOpen = false }
     var barVisible by remember { mutableStateOf(true) }
     LaunchedEffect(tab) { barVisible = true }
     // iOS 26-style: the tab bar steps aside while you scroll down, returns when you scroll up
@@ -241,16 +246,27 @@ private fun Home(
             label = "tab",
         ) { t ->
             when (t) {
-                0 -> LibraryScreen(haze, importing, onOpen = { onOpen(it, null, 0) }, onExport = onExport)
-                1 -> HighlightsScreen(haze, onOpen = onOpen, onExportAll = { onExport(ExportKind.AllHighlights, null) })
-                else -> SettingsScreen(haze, onPickWallpaper = onPickWallpaper, onExport = onExport)
+                0 -> LibraryScreen(haze, importing, onOpen = { onOpen(it, null, 0) }, onExport = onExport, onSettings = { settingsOpen = true })
+                else -> HighlightsScreen(haze, onOpen = onOpen, onExportAll = { onExport(ExportKind.AllHighlights, null) }, onSettings = { settingsOpen = true })
             }
         }
 
         StatusFade(haze)
 
         AnimatedVisibility(
-            visible = barVisible,
+            visible = settingsOpen,
+            enter = slideInHorizontally(spring(0.9f, 420f)) { it } + fadeIn(tween(160)),
+            exit = slideOutHorizontally(spring(0.95f, 500f)) { it } + fadeOut(tween(160)),
+        ) {
+            val sHaze = remember { HazeState() }
+            Box(Modifier.fillMaxSize().background(AppBg)) {
+                SettingsScreen(sHaze, onPickWallpaper = onPickWallpaper, onExport = onExport, onBack = { settingsOpen = false })
+                StatusFade(sHaze)
+            }
+        }
+
+        AnimatedVisibility(
+            visible = barVisible && !settingsOpen,
             enter = slideInVertically(spring(0.8f, 500f)) { it * 2 } + fadeIn(tween(160)),
             exit = slideOutVertically(spring(0.9f, 500f)) { it * 2 } + fadeOut(tween(160)),
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 10.dp),
@@ -267,9 +283,9 @@ private fun Home(
 
 @Composable
 private fun GlassTabBar(selected: Int, onSelect: (Int) -> Unit, haze: HazeState, modifier: Modifier = Modifier) {
-    val tabs = listOf("Library" to Line.Books, "Highlights" to Line.Quote, "Settings" to Line.Gear)
+    val tabs = listOf("Library" to Line.Books, "Highlights" to Line.Quote)
     val shape = RoundedCornerShape(50)
-    val itemW = 74.dp
+    val itemW = 84.dp
     Box(
         modifier
             .width(itemW * tabs.size + 8.dp)

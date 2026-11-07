@@ -117,7 +117,7 @@ private fun ArtBackdrop(h: Highlight, modifier: Modifier, blur: Int = 50) {
 }
 
 @Composable
-fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExportAll: () -> Unit) {
+fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExportAll: () -> Unit, onSettings: () -> Unit) {
     val all by Store.highlights.collectAsState()
     val books by Store.books.collectAsState()
     var filter by remember { mutableIntStateOf(0) }
@@ -139,7 +139,10 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
             item(span = StaggeredGridItemSpan.FullLine, key = "title") {
                 Column(Modifier.padding(horizontal = 4.dp)) {
                     ScreenTitle("Highlights") {
-                        if (all.isNotEmpty()) GlassCircle(Line.Share, "Export all highlights", haze, size = 40.dp, onClick = onExportAll)
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            if (all.isNotEmpty()) GlassCircle(Line.Share, "Export all highlights", haze, size = 40.dp, onClick = onExportAll)
+                            GlassCircle(Line.Gear, "Settings", haze, size = 40.dp, onClick = onSettings)
+                        }
                     }
                     Text(
                         if (all.isEmpty()) "Nothing saved yet" else "${all.size} saved" + if (favCount > 0) " · $favCount loved" else "",
