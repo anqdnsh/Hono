@@ -8,11 +8,10 @@
         android:orientation="horizontal">
         <!-- the cover bitmap carries its own glow/shadow padding, so pull it out a little to keep it big -->
         <ImageView android:id="@+id/cover" android:layout_width="wrap_content" android:layout_height="match_parent"
-            android:layout_marginStart="-4dp" android:layout_marginTop="-4dp" android:layout_marginBottom="-2dp"
-            android:adjustViewBounds="true" android:maxWidth="160dp" android:scaleType="fitStart"
+                        android:adjustViewBounds="true" android:maxWidth="160dp" android:scaleType="fitStart"
             android:src="@mipmap/ic_launcher" />
         <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
-            android:layout_marginStart="8dp" android:orientation="vertical">
+            android:layout_marginStart="14dp" android:orientation="vertical">
             <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:ellipsize="end" android:maxLines="3" android:text="Add a book"
                 android:textColor="#FFF5F5F7" android:textSize="14sp" android:lineSpacingMultiplier="1.05"
@@ -21,8 +20,9 @@
                 android:layout_marginTop="2dp" android:ellipsize="end" android:maxLines="2"
                 android:textColor="#A6FFFFFF" android:textSize="11sp" android:fontFamily="@font/inter_regular" />
             <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+            <!-- kept (hidden) because the widget code still binds it -->
             <TextView android:id="@+id/continueBtn" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:layout_gravity="end"
+                android:layout_gravity="end" android:visibility="gone"
                 android:background="@drawable/widget_pill" android:paddingStart="10dp" android:paddingEnd="10dp"
                 android:paddingTop="5dp" android:paddingBottom="5dp" android:text="Continue"
                 android:maxLines="1" android:singleLine="true" android:ellipsize="none" android:includeFontPadding="false"

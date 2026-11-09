@@ -95,7 +95,7 @@ object Widgets {
             v.setProgressBar(R.id.progress, 1000, (book.progress * 1000).toInt(), false)
             v.setTextViewText(R.id.percent, "${(book.progress * 100).toInt()}%")
             val cover = Store.cover(book.id, 420)
-            if (cover != null) v.setImageViewBitmap(R.id.cover, bookObject(cover, 0.16f)) else v.setImageViewResource(R.id.cover, R.mipmap.ic_launcher)
+            if (cover != null) v.setImageViewBitmap(R.id.cover, plainCover(cover)) else v.setImageViewResource(R.id.cover, R.mipmap.ic_launcher)
             v.setTextViewText(R.id.title, book.title)
             val where = when {
                 book.isPdf && book.totalParas > 0 -> "Page ${book.progressIndex + 1} of ${book.totalParas}"
@@ -238,6 +238,24 @@ object Widgets {
         bindQuote(context, v, R.id.quoteBox, 6)
         v.setOnClickPendingIntent(R.id.next, nextIntent(context, HonoWidget::class.java, 7))
         ids.forEach { m.updateAppWidget(it, v) }
+    }
+
+    /** The cover as it is: rounded corners and a faint edge, no glow, spine or sheen. */
+    private fun plainCover(src: Bitmap): Bitmap {
+        val w = src.width.toFloat(); val h = src.height.toFloat()
+        val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        val c = Canvas(out)
+        val box = RectF(0f, 0f, w, h)
+        val r = w * 0.045f
+        val shape = android.graphics.Path().apply { addRoundRect(box, r, r, android.graphics.Path.Direction.CW) }
+        c.save(); c.clipPath(shape)
+        c.drawBitmap(src, null, box, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+        c.restore()
+        // hairline so dark covers still separate from dark glass
+        c.drawPath(shape, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = w * 0.006f; color = 0x26FFFFFF
+        })
+        return out
     }
 
     /**

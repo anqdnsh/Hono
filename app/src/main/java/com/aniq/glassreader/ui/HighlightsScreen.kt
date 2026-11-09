@@ -1,5 +1,15 @@
 package com.aniq.glassreader.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.zIndex
+import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -84,6 +94,9 @@ import java.text.DateFormat
 import java.util.Date
 import kotlin.math.absoluteValue
 
+/** How cards glide when others open or close around them: soft, no bounce. */
+private val GlidePlacement = spring(dampingRatio = 1f, stiffness = 300f, visibilityThreshold = androidx.compose.ui.unit.IntOffset.VisibilityThreshold)
+
 @Composable
 private fun rememberCoverOf(bookId: String, px: Int = 400): ImageBitmap? {
     val bmp by produceState<ImageBitmap?>(null, bookId) {
@@ -143,6 +156,15 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
     val openSet = opened ?: setOfNotNull(
         Store.lastRead()?.id?.takeIf { id -> groups.any { it.first == id } } ?: groups.firstOrNull()?.first
     )
+    // 0 = folded into its book, 1 = fully dropped out. Highlights stay on screen until it reaches 0,
+    // so collapsing plays out before they leave the grid.
+    val unfold = remember { mutableMapOf<String, Animatable<Float, AnimationVector1D>>() }
+    fun unfoldOf(id: String) = unfold.getOrPut(id) { Animatable(if (id in openSet) 1f else 0f) }
+    // where each book header sits, so its highlights can slide out from underneath it
+    val headerAt = remember { mutableMapOf<String, LayoutCoordinates>() }
+    val scope = rememberCoroutineScope()
+    // books whose highlights are still folding back in after being closed
+    val folding = remember { androidx.compose.runtime.mutableStateListOf<String>() }
     // same pick as the home-screen widget; re-read every minute so the 2-hour change shows up here too
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(60_000); tick++ } }
@@ -201,12 +223,46 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
             groups.forEach { (bookId, list) ->
                 val isOpen = bookId in openSet
                 item(span = StaggeredGridItemSpan.FullLine, key = "book-$bookId") {
-                    BookHeader(bookId, titles[bookId] ?: "Removed book", list.size, isOpen, Modifier.animateItem()) {
-                        opened = if (isOpen) openSet - bookId else openSet + bookId
+                    BookHeader(bookId, titles[bookId] ?: "Removed book", list.size, isOpen,
+                        Modifier.zIndex(1f).animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = GlidePlacement)
+                            .onPlaced { headerAt[bookId] = it }) {
+                        val anim = unfoldOf(bookId)
+                        if (isOpen) {
+                            opened = openSet - bookId
+                            folding += bookId
+                            scope.launch {
+                                try { anim.animateTo(0f, spring(dampingRatio = 1f, stiffness = 420f)) }
+                                finally { folding -= bookId }
+                            }
+                        } else {
+                            opened = openSet + bookId
+                            scope.launch { anim.animateTo(1f, spring(dampingRatio = 0.86f, stiffness = 260f)) }
+                        }
                     }
                 }
-                if (isOpen) items(list, key = { it.id }) { h ->
-                    Frame(h, titles[h.bookId] ?: "", Modifier.animateItem()) { exhibit = list to list.indexOf(h) }
+                val a = unfoldOf(bookId)
+                if (isOpen || bookId in folding) itemsIndexed(list, key = { _, h -> h.id }) { i, h ->
+                    val mine = remember { arrayOfNulls<LayoutCoordinates>(1) }
+                    val n = list.size
+                    Frame(h, titles[h.bookId] ?: "",
+                        Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = GlidePlacement)
+                            .onPlaced { mine[0] = it }
+                            .graphicsLayer {
+                                // stagger: the first highlight leads out, the last one leads back in
+                                val s = (0.5f / n).coerceAtMost(0.07f)
+                                val t = ((a.value - s * i) / (1f - s * (n - 1))).coerceIn(0f, 1f)
+                                val head = headerAt[bookId]?.takeIf { it.isAttached }
+                                val me = mine[0]?.takeIf { it.isAttached }
+                                // how far below the bottom of the book header this card sits
+                                val drop = if (head != null && me != null)
+                                    (me.positionInRoot().y - (head.positionInRoot().y + head.size.height)).coerceAtLeast(0f) + size.height * 0.5f
+                                else size.height
+                                translationY = -drop * (1f - t)
+                                alpha = (t * 1.4f - 0.2f).coerceIn(0f, 1f)
+                                val sc = 0.86f + 0.14f * t
+                                scaleX = sc; scaleY = sc
+                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                            }) { exhibit = list to list.indexOf(h) }
                 }
             }
         }
