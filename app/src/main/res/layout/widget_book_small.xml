@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Book widget (narrow): big cover on the left, title + chapter + arrow button on the right, progress along the bottom. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/widget_glass" android:orientation="vertical" android:padding="14dp">
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:orientation="horizontal">
+        <!-- the cover bitmap carries its own glow/shadow padding, so pull it out a little to keep it big -->
+        <ImageView android:id="@+id/cover" android:layout_width="wrap_content" android:layout_height="match_parent"
+            android:layout_marginStart="-4dp" android:layout_marginTop="-4dp" android:layout_marginBottom="-2dp"
+            android:adjustViewBounds="true" android:maxWidth="96dp" android:scaleType="fitStart"
+            android:src="@mipmap/ic_launcher" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+            android:layout_marginStart="8dp" android:orientation="vertical">
+            <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:ellipsize="end" android:maxLines="3" android:text="Add a book"
+                android:textColor="#FFF5F5F7" android:textSize="14sp" android:lineSpacingMultiplier="1.05"
+                android:fontFamily="@font/inter_semibold" />
+            <TextView android:id="@+id/chapter" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="2dp" android:ellipsize="end" android:maxLines="2"
+                android:textColor="#A6FFFFFF" android:textSize="11sp" android:fontFamily="@font/inter_regular" />
+            <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+            <ImageView android:id="@+id/continueBtn" android:layout_width="30dp" android:layout_height="30dp"
+                android:background="@drawable/widget_pill" android:padding="7dp" android:src="@drawable/ic_arrow"
+                android:tint="#FF1C1C1E" android:contentDescription="Continue" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <ProgressBar android:id="@+id/progress" style="@android:style/Widget.ProgressBar.Horizontal"
+        android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="10dp"
+        android:max="1000" android:progress="0" android:progressDrawable="@drawable/widget_progress" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="7dp" android:gravity="center_vertical" android:orientation="horizontal">
+        <ImageView android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_clock" />
+        <TextView android:id="@+id/hours" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:layout_marginStart="5dp" android:maxLines="1" android:ellipsize="end"
+            android:text="0m read" android:textColor="#FFF5F5F7" android:textSize="11sp"
+            android:fontFamily="@font/inter_semibold" />
+        <TextView android:id="@+id/percent" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="0%" android:textColor="#A6FFFFFF" android:textSize="11sp"
+            android:fontFamily="@font/inter_medium" />
+    </LinearLayout>
+</LinearLayout>

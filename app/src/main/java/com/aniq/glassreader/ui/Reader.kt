@@ -371,8 +371,7 @@ private fun ReaderBody(
         val fullW = constraints.maxWidth.toFloat()
         // landscape (the Fold opened sideways): a page on each half of the screen, like an open book
         val landscape = constraints.maxWidth > constraints.maxHeight
-        // and on the open Fold held upright, so lines don't run the whole width of the big screen
-        val spread = landscape || (settings.twoPageUnfolded && maxWidth >= 600.dp)
+        val spread = landscape
         // the outer screen shows the cover only while reading sideways
         LaunchedEffect(landscape) { com.aniq.glassreader.CoverDisplay.landscape.value = landscape }
         DisposableEffect(Unit) { onDispose { com.aniq.glassreader.CoverDisplay.landscape.value = false } }

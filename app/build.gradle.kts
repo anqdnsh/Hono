@@ -63,4 +63,5 @@ dependencies {
     implementation("dev.chrisbanes.haze:haze:1.6.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.window:window:1.3.0")
+    implementation("androidx.dynamicanimation:dynamicanimation:1.0.0")
 }

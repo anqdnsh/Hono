@@ -113,8 +113,6 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
                     }
                     Line()
                     Pad { ToggleRow("Volume keys turn pages", "Down for next, up for previous", s.volumeKeys, UiTheme) { v -> set { it.copy(volumeKeys = v) } } }
-                    Line()
-                    Pad { ToggleRow("Two pages when unfolded", "On the big screen, even held upright. Sideways is always two pages", s.twoPageUnfolded, UiTheme) { v -> set { it.copy(twoPageUnfolded = v) } } }
                 }
             }
 

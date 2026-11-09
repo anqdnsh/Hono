@@ -81,13 +81,21 @@ object Widgets {
 
     fun updateBook(context: Context, m: AppWidgetManager, ids: IntArray) {
         if (ids.isEmpty()) return
-        val v = RemoteViews(context.packageName, R.layout.widget_book)
+        // Android picks the layout that fits: the "Continue" pill when there's room, a round arrow when narrow
+        val wide = bookViews(context, R.layout.widget_book, pill = true)
+        val narrow = bookViews(context, R.layout.widget_book_small, pill = false)
+        val v = RemoteViews(mapOf(android.util.SizeF(90f, 90f) to narrow, android.util.SizeF(168f, 120f) to wide))
+        ids.forEach { m.updateAppWidget(it, v) }
+    }
+
+    private fun bookViews(context: Context, layout: Int, pill: Boolean): RemoteViews {
+        val v = RemoteViews(context.packageName, layout)
         val book = Store.lastRead() ?: Store.books.value.firstOrNull()
         if (book != null) {
             v.setProgressBar(R.id.progress, 1000, (book.progress * 1000).toInt(), false)
             v.setTextViewText(R.id.percent, "${(book.progress * 100).toInt()}%")
             val cover = Store.cover(book.id, 420)
-            if (cover != null) v.setImageViewBitmap(R.id.cover, bookObject(cover)) else v.setImageViewResource(R.id.cover, R.mipmap.ic_launcher)
+            if (cover != null) v.setImageViewBitmap(R.id.cover, bookObject(cover, 0.16f)) else v.setImageViewResource(R.id.cover, R.mipmap.ic_launcher)
             v.setTextViewText(R.id.title, book.title)
             val where = when {
                 book.isPdf && book.totalParas > 0 -> "Page ${book.progressIndex + 1} of ${book.totalParas}"
@@ -96,22 +104,21 @@ object Widgets {
             }
             v.setTextViewText(R.id.chapter, where)
             v.setViewVisibility(R.id.chapter, if (where.isBlank()) android.view.View.GONE else android.view.View.VISIBLE)
-            v.setTextViewText(R.id.continueBtn, if (book.lastOpened > 0) "Continue" else "Start")
+            if (pill) v.setTextViewText(R.id.continueBtn, if (book.lastOpened > 0) "Continue" else "Start")
             v.setContentDescription(R.id.root, "Continue ${book.title}")
             val open = openIntent(context, 8) { putExtra(EXTRA_OPEN_BOOK, book.id) }
             v.setOnClickPendingIntent(R.id.root, open)
             v.setOnClickPendingIntent(R.id.continueBtn, open)
         } else {
             v.setTextViewText(R.id.title, "Add your first book")
-            v.setTextViewText(R.id.chapter, "")
             v.setViewVisibility(R.id.chapter, android.view.View.GONE)
-            v.setTextViewText(R.id.continueBtn, "Open Hono")
+            if (pill) v.setTextViewText(R.id.continueBtn, "Open")
             val open = openIntent(context, 8) {}
             v.setOnClickPendingIntent(R.id.root, open)
             v.setOnClickPendingIntent(R.id.continueBtn, open)
         }
         v.setTextViewText(R.id.hours, "${formatReadTime(Store.totalReadMs.value)} read")
-        ids.forEach { m.updateAppWidget(it, v) }
+        return v
     }
 
     /**
@@ -238,9 +245,9 @@ object Widgets {
      * a sheen across the top, squarer corners at the spine, and a glow in the cover's own colour
      * behind it so each book tints the glass a little.
      */
-    private fun bookObject(src: Bitmap): Bitmap {
+    private fun bookObject(src: Bitmap, padFrac: Float = 0.30f): Bitmap {
         val w = src.width.toFloat(); val h = src.height.toFloat()
-        val pad = w * 0.30f
+        val pad = w * padFrac
         val out = Bitmap.createBitmap((w + pad * 2).toInt(), (h + pad * 2).toInt(), Bitmap.Config.ARGB_8888)
         val c = Canvas(out)
         val box = RectF(pad, pad, pad + w, pad + h)

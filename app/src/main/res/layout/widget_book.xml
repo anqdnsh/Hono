@@ -8,11 +8,11 @@
         android:orientation="horizontal">
         <!-- the cover bitmap carries its own glow/shadow padding, so pull it out a little to keep it big -->
         <ImageView android:id="@+id/cover" android:layout_width="wrap_content" android:layout_height="match_parent"
-            android:layout_marginStart="-10dp" android:layout_marginTop="-10dp" android:layout_marginBottom="-6dp"
-            android:adjustViewBounds="true" android:maxWidth="150dp" android:scaleType="fitStart"
+            android:layout_marginStart="-4dp" android:layout_marginTop="-4dp" android:layout_marginBottom="-2dp"
+            android:adjustViewBounds="true" android:maxWidth="96dp" android:scaleType="fitStart"
             android:src="@mipmap/ic_launcher" />
         <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
-            android:layout_marginStart="2dp" android:orientation="vertical">
+            android:layout_marginStart="8dp" android:orientation="vertical">
             <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:ellipsize="end" android:maxLines="3" android:text="Add a book"
                 android:textColor="#FFF5F5F7" android:textSize="14sp" android:lineSpacingMultiplier="1.05"
@@ -22,9 +22,10 @@
                 android:textColor="#A6FFFFFF" android:textSize="11sp" android:fontFamily="@font/inter_regular" />
             <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
             <TextView android:id="@+id/continueBtn" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:background="@drawable/widget_pill" android:paddingStart="12dp" android:paddingEnd="12dp"
+                android:background="@drawable/widget_pill" android:paddingStart="10dp" android:paddingEnd="10dp"
                 android:paddingTop="5dp" android:paddingBottom="5dp" android:text="Continue"
-                android:textColor="#FF1C1C1E" android:textSize="12sp" android:fontFamily="@font/inter_semibold" />
+                android:maxLines="1" android:singleLine="true" android:ellipsize="none" android:includeFontPadding="false"
+                android:textColor="#FF1C1C1E" android:textSize="11.5sp" android:fontFamily="@font/inter_semibold" />
         </LinearLayout>
     </LinearLayout>
 

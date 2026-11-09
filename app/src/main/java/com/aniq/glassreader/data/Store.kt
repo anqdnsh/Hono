@@ -444,6 +444,11 @@ object Store {
             .apply()
     }
 
+    /** Badge titles already shown as earned, so new ones can pop once. */
+    var seenBadges: Set<String>
+        get() = prefs.getStringSet("seenBadges", emptySet())!!.toSet()
+        set(v) { prefs.edit().putStringSet("seenBadges", v).apply() }
+
     var quoteIndex: Int
         get() = prefs.getInt("quoteIdx", 0)
         set(v) { prefs.edit().putInt("quoteIdx", v).apply() }

@@ -138,6 +138,11 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
             .map { e -> e.key to e.value.sortedWith(compareBy({ it.para }, { it.start })) }
     }
     val favCount = remember(all) { all.count { it.favorite } }
+    // books fold away; the one read most recently starts open
+    var opened by remember { mutableStateOf<Set<String>?>(null) }
+    val openSet = opened ?: setOfNotNull(
+        Store.lastRead()?.id?.takeIf { id -> groups.any { it.first == id } } ?: groups.firstOrNull()?.first
+    )
     // same pick as the home-screen widget; re-read every minute so the 2-hour change shows up here too
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(60_000); tick++ } }
@@ -194,10 +199,13 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
                 }
             }
             groups.forEach { (bookId, list) ->
+                val isOpen = bookId in openSet
                 item(span = StaggeredGridItemSpan.FullLine, key = "book-$bookId") {
-                    BookHeader(bookId, titles[bookId] ?: "Removed book", list.size, Modifier.animateItem())
+                    BookHeader(bookId, titles[bookId] ?: "Removed book", list.size, isOpen, Modifier.animateItem()) {
+                        opened = if (isOpen) openSet - bookId else openSet + bookId
+                    }
                 }
-                items(list, key = { it.id }) { h ->
+                if (isOpen) items(list, key = { it.id }) { h ->
                     Frame(h, titles[h.bookId] ?: "", Modifier.animateItem()) { exhibit = list to list.indexOf(h) }
                 }
             }
@@ -252,19 +260,27 @@ private fun QuoteOfTheDay(h: Highlight, bookTitle: String, onClick: () -> Unit, 
     }
 }
 
-/** Book title over its group of highlights, with a small cover. */
+/** A book's row: cover, title and how many highlights. Tap to open or fold away its highlights. */
 @Composable
-private fun BookHeader(bookId: String, title: String, count: Int, modifier: Modifier) {
-    val cover = rememberCoverOf(bookId, 160)
-    Row(modifier.fillMaxWidth().padding(start = 4.dp, top = 18.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(width = 30.dp, height = 44.dp).clip(RoundedCornerShape(4.dp)).background(Primary.copy(alpha = 0.08f))) {
+private fun BookHeader(bookId: String, title: String, count: Int, open: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val cover = rememberCoverOf(bookId, 200)
+    val turn by androidx.compose.animation.core.animateFloatAsState(if (open) 90f else 0f, spring(0.7f, 500f), label = "chev")
+    val shape = RoundedCornerShape(24.dp)
+    Row(
+        modifier.fillMaxWidth().padding(top = 10.dp).bouncyClick(pressedScale = 0.97f, haptic = Haptic.Tick, onClick = onClick)
+            .liquidGlass(shape).padding(start = 12.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(width = 40.dp, height = 58.dp).clip(RoundedCornerShape(5.dp)).background(Primary.copy(alpha = 0.08f))) {
             if (cover != null) Image(cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
         }
-        Column(Modifier.padding(start = 12.dp).weight(1f)) {
+        Column(Modifier.padding(start = 14.dp).weight(1f)) {
             Text(title, color = Primary, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(if (count == 1) "1 highlight" else "$count highlights", color = Secondary, fontSize = 13.sp)
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(if (count == 1) "1 highlight" else "$count highlights", color = Secondary, fontSize = 14.sp, modifier = Modifier.padding(top = 2.dp))
         }
+        Icon(Line.Chevron, if (open) "Hide highlights" else "Show highlights", tint = Secondary,
+            modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = turn })
     }
 }
 
