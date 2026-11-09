@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -137,8 +138,8 @@ object ReaderKeys {
     val turns = MutableSharedFlow<Int>(extraBufferCapacity = 8)
 }
 
-private data class Sel(val para: Int, val start: Int, val end: Int)
-private enum class Sheet { None, Chapters, Settings, Marks }
+private data class Sel(val para: Int, val start: Int, val end: Int, val word: String? = null)
+private enum class Sheet { None, Chapters, Settings, Marks, Define, Note }
 private data class Anchor(val para: Int, val char: Int) : Comparable<Anchor> {
     override fun compareTo(other: Anchor) = if (para != other.para) para.compareTo(other.para) else char.compareTo(other.char)
 }
@@ -303,8 +304,12 @@ private fun ReaderBody(
     var dragging by remember { mutableStateOf(false) }
     var active by remember { mutableStateOf<Highlight?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
+    var defineWord by remember { mutableStateOf("") }
+    var noteFor by remember { mutableStateOf<Highlight?>(null) }
 
     val allHl by Store.highlights.collectAsState()
+    val allMarks by Store.bookmarks.collectAsState()
+    val bookMarks = remember(allMarks, book.id) { allMarks.filter { it.bookId == book.id }.sortedWith(compareBy({ it.para }, { it.char })) }
     val bookHl = remember(allHl, book.id) { allHl.filter { it.bookId == book.id } }
     val byPara = remember(bookHl) { bookHl.groupBy { it.para } }
     val activeLive = active?.let { a -> bookHl.firstOrNull { it.id == a.id } }
@@ -341,6 +346,7 @@ private fun ReaderBody(
     }
     LaunchedEffect(anchor) { delay(400); Store.updateProgress(book.id, anchor.para, anchor.char, n, c.chapterAt(anchor.para)?.title.orEmpty()) }
     ReadingClock(book.id, anchor)
+    GoalWatcher { toast = "Daily goal reached"; haptics.play(Haptic.Confirm) }
     LaunchedEffect(toast) { if (toast != null) { delay(1600); toast = null } }
 
     // ---- styles ----
@@ -364,7 +370,12 @@ private fun ReaderBody(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fullW = constraints.maxWidth.toFloat()
         // landscape (the Fold opened sideways): a page on each half of the screen, like an open book
-        val spread = constraints.maxWidth > constraints.maxHeight
+        val landscape = constraints.maxWidth > constraints.maxHeight
+        // and on the open Fold held upright, so lines don't run the whole width of the big screen
+        val spread = landscape || (settings.twoPageUnfolded && maxWidth >= 600.dp)
+        // the outer screen shows the cover only while reading sideways
+        LaunchedEffect(landscape) { com.aniq.glassreader.CoverDisplay.landscape.value = landscape }
+        DisposableEffect(Unit) { onDispose { com.aniq.glassreader.CoverDisplay.landscape.value = false } }
         val step = if (spread) 2 else 1
         val slotWdp = if (spread) maxWidth / 2 else maxWidth
         // use the whole screen: system bars are hidden while reading, so only the camera cutout is reserved
@@ -413,6 +424,22 @@ private fun ReaderBody(
             !spread -> pageAt(d)
             d > 0 -> pageAt(2)
             else -> pageAt(-2) ?: pageAt(-1)
+        }
+
+        // ---- bookmarks: one counts as "here" if it falls on the page (or spread) on screen ----
+        val hereStart = pageAt(0)?.start
+        val hereEnd = neighbour(1)?.start
+        val markHere = if (hereStart == null) null else bookMarks.firstOrNull {
+            val a = Anchor(it.para, it.char); a >= hereStart && (hereEnd == null || a < hereEnd)
+        }
+        fun toggleBookmark() {
+            val m = markHere
+            if (m != null) { Store.removeBookmark(m.id); haptics.play(Haptic.ToggleOff); toast = "Bookmark removed"; return }
+            val st = hereStart ?: anchor
+            val snippet = c.paras[st.para].text.drop(st.char).trim().take(90)
+            Store.addBookmark(com.aniq.glassreader.data.Bookmark(UUID.randomUUID().toString(), book.id, st.para, st.char,
+                c.chapterAt(st.para)?.title ?: book.title, snippet))
+            haptics.play(Haptic.Confirm); toast = "Bookmarked"
         }
 
         // ---- page turning ----
@@ -540,6 +567,16 @@ private fun ReaderBody(
             }
         }
 
+        // a small ribbon on a bookmarked page
+        androidx.compose.animation.AnimatedVisibility(
+            visible = markHere != null,
+            enter = fadeIn(tween(160)) + slideInVertically(spring(0.6f, 500f)) { -it },
+            exit = fadeOut(tween(140)) + slideOutVertically { -it },
+            modifier = Modifier.align(Alignment.TopEnd).padding(end = 22.dp),
+        ) {
+            Icon(Line.BookmarkFill, "Bookmarked", tint = Color(0xFFFF9F0A), modifier = Modifier.size(width = 18.dp, height = 30.dp))
+        }
+
         // ---- quiet page furniture ----
         val chapterTitle = c.chapterAt(anchor.para)?.title ?: book.title
         val percent = if (n <= 1) 0 else ((anchor.para.toFloat() / (n - 1)) * 100).roundToInt()
@@ -588,7 +625,10 @@ private fun ReaderBody(
                             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp))
                     }
                 }
-                GlassCircle(Line.Quote, "Highlights", haze, tint = theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light) { sheet = Sheet.Marks }
+                GlassCircle(if (markHere != null) Line.BookmarkFill else Line.Bookmark, "Bookmark this page", haze,
+                    tint = if (markHere != null) Color(0xFFFF9F0A) else theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light) { toggleBookmark() }
+                Spacer(Modifier.width(10.dp))
+                GlassCircle(Line.Quote, "Highlights and bookmarks", haze, tint = theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light) { sheet = Sheet.Marks }
             }
         }
 
@@ -641,6 +681,8 @@ private fun ReaderBody(
         Toolbar(visible = selection != null && !dragging, haze, theme, bottomInset) {
             HighlightColors.forEachIndexed { i, col -> ColorDot(col, false) { commit(i) } }
             Divider(theme)
+            val word = lastSel?.let { s -> s.word ?: pickWord(c.paras[s.para].text.substring(s.start.coerceIn(0, c.paras[s.para].text.length), s.end.coerceIn(0, c.paras[s.para].text.length))) }
+            if (word != null) BarIcon(Line.Define, theme) { defineWord = word; selection = null; sheet = Sheet.Define }
             BarIcon(Line.Paragraph, theme) { lastSel?.let { s -> selection = Sel(s.para, 0, c.paras[s.para].text.length) } }
             BarIcon(Line.Copy, theme) {
                 lastSel?.let { s -> clipboard.setText(AnnotatedString(c.paras[s.para].text.substring(s.start, s.end))) }
@@ -663,6 +705,7 @@ private fun ReaderBody(
                 h?.let { Store.updateHighlight(it.id) { x -> x.copy(favorite = !x.favorite) } }
                 haptics.play(if (h?.favorite == true) Haptic.ToggleOff else Haptic.Confirm)
             }
+            BarIcon(Line.Note, theme, tint = if (h?.note?.isNotBlank() == true) theme.accent else theme.text) { noteFor = h; active = null; sheet = Sheet.Note }
             BarIcon(Line.Copy, theme) { h?.let { clipboard.setText(AnnotatedString(it.text)) }; active = null; toast = "Copied" }
             BarIcon(Line.Trash, theme) { h?.let { Store.removeHighlight(it.id) }; haptics.play(Haptic.Reject); active = null; toast = "Highlight removed" }
         }
@@ -674,7 +717,16 @@ private fun ReaderBody(
             when (lastSheet) {
                 Sheet.Chapters -> ChaptersSheet(c, anchor.para, theme) { jump(it) }
                 Sheet.Settings -> SettingsSheet(settings, theme)
-                Sheet.Marks -> MarksSheet(bookHl, theme) { p, ch -> jump(p, ch) }
+                Sheet.Marks -> MarksSheet(bookHl, bookMarks, theme) { p, ch -> jump(p, ch) }
+                Sheet.Define -> DefineContent(defineWord, theme.text, theme.sub)
+                Sheet.Note -> noteFor?.let { h ->
+                    androidx.compose.runtime.key(h.id) {
+                        NoteEditor(h.text, bookHl.firstOrNull { it.id == h.id }?.note ?: h.note, theme.text, theme.sub) { t ->
+                            Store.updateHighlight(h.id) { x -> x.copy(note = t) }
+                            sheet = Sheet.None; toast = if (t.isBlank()) "Note removed" else "Note saved"
+                        }
+                    }
+                }
                 Sheet.None -> {}
             }
         }
@@ -881,7 +933,8 @@ private fun ParaText(
                         haptics.play(Haptic.GestureEnd)
                         if (!moved) {
                             val r = sentenceRange(text, anchor.first)
-                            select(Sel(index, r.first, r.last + 1), false)
+                            val w = if (anchor.last >= anchor.first) text.substring(anchor.first, anchor.last + 1) else null
+                            select(Sel(index, r.first, r.last + 1, pickWord(w ?: "")), false)
                         } else select(Sel(index, lastStart, lastEnd), false)
                     },
                     onDragCancel = { loupe.hide(); if (lastEnd > lastStart) select(Sel(index, lastStart, lastEnd), false) },
@@ -975,6 +1028,7 @@ internal fun GlassSheet(
         ) {
             Column(
                 Modifier
+                    .imePadding()
                     .padding(start = 8.dp, end = 8.dp, bottom = bottomInset + 8.dp)
                     .widthIn(max = 620.dp)
                     .fillMaxWidth()
@@ -1024,9 +1078,15 @@ private fun ChaptersSheet(c: BookContent, para: Int, theme: ReaderTheme, jump: (
 }
 
 @Composable
-private fun MarksSheet(list: List<Highlight>, theme: ReaderTheme, jump: (Int, Int) -> Unit) {
+private fun MarksSheet(list: List<Highlight>, marks: List<com.aniq.glassreader.data.Bookmark>, theme: ReaderTheme, jump: (Int, Int) -> Unit) {
     val sorted = remember(list) { list.sortedWith(compareBy({ it.para }, { it.start })) }
-    SheetTitle("Highlights", theme)
+    var tab by remember { mutableStateOf(0) }
+    Segmented(listOf("Highlights", "Bookmarks"), tab, { tab = it }, Modifier.padding(horizontal = 20.dp, vertical = 6.dp), fg = theme.text)
+    if (tab == 1) {
+        BookmarkList(marks, theme.text, theme.sub, "Tap the bookmark at the top while reading to save your place.",
+            onJump = { jump(it.para, it.char) }, onRemove = { Store.removeBookmark(it.id) })
+        return
+    }
     if (sorted.isEmpty()) {
         Text("Hold on any sentence to highlight it.", color = theme.sub, fontFamily = Inter, fontSize = 14.sp,
             modifier = Modifier.padding(24.dp))
@@ -1047,6 +1107,7 @@ private fun MarksSheet(list: List<Highlight>, theme: ReaderTheme, jump: (Int, In
                     .background(HighlightColors[h.color.coerceIn(0, HighlightColors.lastIndex)]))
                 Column(Modifier.padding(start = 12.dp)) {
                     Text(h.text, color = theme.text, fontFamily = Inter, fontSize = 15.sp, lineHeight = 21.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                    NoteLine(h.note, theme.text, maxLines = 3)
                     if (h.chapter.isNotBlank()) Text(h.chapter, color = theme.sub, fontFamily = Inter, fontSize = 12.sp, maxLines = 1,
                         modifier = Modifier.padding(top = 4.dp))
                 }

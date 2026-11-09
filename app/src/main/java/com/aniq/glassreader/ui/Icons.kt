@@ -60,6 +60,11 @@ object Line {
         stroke("more", "M6,12H6.1", "M12,12H12.1", "M18,12H18.1", width = 2.6f)
     }
     val Refresh by lazy { stroke("refresh", "M18.6,12.5A6.6,6.6 0,1 1,16.4,7.1", "M17,3.6V7.6H13") }
+    val Bookmark by lazy { stroke("bm", "M7,4.5H17V19.5L12,15.8L7,19.5Z") }
+    val BookmarkFill by lazy { filled("bmFill", "M6.2,4.5C6.2,4 6.6,3.6 7.1,3.6H16.9C17.4,3.6 17.8,4 17.8,4.5V20.2L12,16.1L6.2,20.2Z") }
+    val Note by lazy { stroke("note", "M4.5,19.5H9L19,9.5L14.5,5L4.5,15Z", "M12.5,7L17,11.5") }
+    val Define by lazy { stroke("define", "M10.5,4.5A6,6 0,1 1,10.49,4.5Z", "M14.8,14.8L19.5,19.5", "M8,12.5L10.5,7.5L13,12.5", "M8.8,11H12.2") }
+    val Trophy by lazy { stroke("trophy", "M7.5,4.5H16.5V9.5A4.5,4.5 0,0 1,7.5,9.5Z", "M7.5,6.5H4.5C4.5,9.5 6,11 8,11", "M16.5,6.5H19.5C19.5,9.5 18,11 16,11", "M12,14V17.5", "M8.5,19.5H15.5", "M9.5,17.5H14.5") }
     val Chevron by lazy { stroke("chev", "M9.5,6L15.5,12L9.5,18", width = 2f) }
     val Paragraph by lazy { stroke("para", "M4.5,6H19.5", "M4.5,10H19.5", "M4.5,14H19.5", "M4.5,18H13") }
 }

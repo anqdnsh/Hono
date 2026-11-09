@@ -47,9 +47,9 @@ class CoverDisplay(private val activity: Activity, private val scope: CoroutineS
             }
         }
         scope.launch {
-            combine(openBook, Store.settings, available) { id, s, ok -> Triple(id, s.coverScreen, ok) }.collect { (id, on, ok) ->
-                if (id != null && on) show(id, ok) else hide()
-            }
+            // automatic: on while a book is open sideways (two pages), off as soon as it turns upright
+            combine(openBook, landscape, Store.settings, available) { id, wide, s, ok -> Triple(id?.takeIf { wide }, s.coverScreen, ok) }
+                .collect { (id, on, ok) -> if (id != null && on) show(id, ok) else hide() }
         }
     }
 
@@ -65,7 +65,7 @@ class CoverDisplay(private val activity: Activity, private val scope: CoroutineS
                     starting = false
                     this@CoverDisplay.session = session
                     val id = openBook.value
-                    if (id == null || !Store.settings.value.coverScreen) { session.close(); return }
+                    if (id == null || !landscape.value || !Store.settings.value.coverScreen) { session.close(); return }
                     shownBook = id
                     session.setContentView(buildView(session, id))
                 }
@@ -82,7 +82,7 @@ class CoverDisplay(private val activity: Activity, private val scope: CoroutineS
 
     private fun buildView(s: WindowAreaSessionPresenter, bookId: String): android.view.View {
         val v = LayoutInflater.from(s.context).inflate(R.layout.cover_display, null)
-        val cover = Store.cover(bookId, 1200)
+        val cover = Store.cover(bookId, 2000)
         val iv = v.findViewById<ImageView>(R.id.cover)
         if (cover != null) iv.setImageBitmap(rounded(cover)) else iv.setImageResource(R.mipmap.ic_launcher)
         return v
@@ -91,13 +91,15 @@ class CoverDisplay(private val activity: Activity, private val scope: CoroutineS
     private fun rounded(src: Bitmap): Bitmap {
         val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
         val c = Canvas(out); val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        val r = src.width * 0.04f
+        val r = src.width * 0.02f
         c.drawRoundRect(RectF(0f, 0f, src.width.toFloat(), src.height.toFloat()), r, r, p)
         p.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN); c.drawBitmap(src, 0f, 0f, p)
         return out
     }
 
     companion object {
+        /** True while the reader is sideways showing two pages (set by the reader screens). */
+        val landscape = MutableStateFlow(false)
         /** Book currently open in the reader (set by the reader screens). */
         val openBook = MutableStateFlow<String?>(null)
         /** Whether this device can present on its outer screen at all. */

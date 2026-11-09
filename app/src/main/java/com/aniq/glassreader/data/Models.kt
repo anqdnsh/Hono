@@ -62,6 +62,7 @@ data class Highlight(
     val favorite: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val rect: FloatArray? = null, // PDF only: one or more l,t,r,b boxes in 0..1 page space
+    val note: String = "",        // the reader's own thought about it
 ) {
     /** A framed picture of a page region (scanned PDFs), rather than selected text. */
     val isClip get() = rect != null && text.isEmpty()
@@ -70,11 +71,12 @@ data class Highlight(
         put("id", id); put("book", bookId); put("para", para); put("s", start); put("e", end)
         put("text", text); put("color", color); put("chapter", chapter)
         put("fav", favorite); put("at", createdAt)
+        if (note.isNotBlank()) put("note", note)
         rect?.let { r -> put("rect", JSONArray().apply { r.forEach { put(it.toDouble()) } }) }
     }
 
     override fun equals(other: Any?) = other is Highlight && other.id == id && other.color == color &&
-        other.favorite == favorite && other.start == start && other.end == end && other.text == text
+        other.favorite == favorite && other.start == start && other.end == end && other.text == text && other.note == note
     override fun hashCode() = id.hashCode()
 
     companion object {
@@ -90,6 +92,29 @@ data class Highlight(
             favorite = o.optBoolean("fav", false),
             createdAt = o.optLong("at", 0L),
             rect = o.optJSONArray("rect")?.let { a -> FloatArray(a.length()) { a.getDouble(it).toFloat() } },
+            note = o.optString("note", ""),
+        )
+    }
+}
+
+/** A saved place in a book: paragraph + character (text) or page (PDF). */
+data class Bookmark(
+    val id: String,
+    val bookId: String,
+    val para: Int,
+    val char: Int,
+    val label: String,           // chapter or "Page 12"
+    val snippet: String,         // first words on that page
+    val createdAt: Long = System.currentTimeMillis(),
+) {
+    fun toJson() = JSONObject().apply {
+        put("id", id); put("book", bookId); put("para", para); put("char", char)
+        put("label", label); put("snip", snippet); put("at", createdAt)
+    }
+    companion object {
+        fun fromJson(o: JSONObject) = Bookmark(
+            o.getString("id"), o.getString("book"), o.optInt("para"), o.optInt("char"),
+            o.optString("label"), o.optString("snip"), o.optLong("at"),
         )
     }
 }
@@ -111,8 +136,10 @@ data class ReaderSettings(
     val hapticLevel: Int = 2,    // 0 light, 1 medium, 2 strong
     val volumeKeys: Boolean = true,
     val pageAnim: Int = 0,       // 0 slide, 1 fade
-    val coverScreen: Boolean = false,
+    val coverScreen: Boolean = true, // cover on the outer screen while reading two pages sideways
     val uiMode: Int = 0,         // 0 system, 1 light, 2 dark
+    val twoPageUnfolded: Boolean = true, // two pages on the open Fold even when held upright
+    val dailyGoalMin: Int = 20,
 )
 
 /** Para styles are packed triples: start, end, type (1 = italic, 2 = bold). */

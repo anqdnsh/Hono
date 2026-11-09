@@ -44,6 +44,11 @@ object Store {
     val books: StateFlow<List<Book>> = _books
     private val _highlights = MutableStateFlow<List<Highlight>>(emptyList())
     val highlights: StateFlow<List<Highlight>> = _highlights
+    private val _bookmarks = MutableStateFlow<List<Bookmark>>(emptyList())
+    val bookmarks: StateFlow<List<Bookmark>> = _bookmarks
+    /** Minutes read per day, keyed "2026-11-10". */
+    private val _daily = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val daily: StateFlow<Map<String, Long>> = _daily
     private val _settings = MutableStateFlow(ReaderSettings())
     val settings: StateFlow<ReaderSettings> = _settings
 
@@ -72,6 +77,11 @@ object Store {
             b.copy(title = t, author = a)
         }
         _highlights.value = readArray("highlights.json").map { Highlight.fromJson(it) }
+        _bookmarks.value = readArray("bookmarks.json").map { Bookmark.fromJson(it) }
+        _daily.value = runCatching {
+            val o = org.json.JSONObject(prefs.getString("daily", "{}")!!)
+            o.keys().asSequence().associateWith { o.getLong(it) }
+        }.getOrDefault(emptyMap())
         val d = ReaderSettings()
         _settings.value = ReaderSettings(
             fontSize = prefs.getFloat("fontSize", d.fontSize),
@@ -90,8 +100,10 @@ object Store {
             hapticLevel = prefs.getInt("hapticLevel", d.hapticLevel),
             volumeKeys = prefs.getBoolean("volKeys", d.volumeKeys),
             pageAnim = prefs.getInt("pageAnim", d.pageAnim),
-            coverScreen = prefs.getBoolean("coverScreen", d.coverScreen),
+            coverScreen = prefs.getBoolean("coverAuto", d.coverScreen),
             uiMode = prefs.getInt("uiMode", d.uiMode),
+            twoPageUnfolded = prefs.getBoolean("twoPageOpen", d.twoPageUnfolded),
+            dailyGoalMin = prefs.getInt("goalMin", d.dailyGoalMin),
         )
         _totalReadMs.value = prefs.getLong("totalReadMs", _books.value.sumOf { it.readMs })
         initialized = true
@@ -125,6 +137,7 @@ object Store {
             val h = JSONArray().apply { _highlights.value.forEach { put(it.toJson()) } }
             writeAtomic("library.json", b.toString())
             writeAtomic("highlights.json", h.toString())
+            writeAtomic("bookmarks.json", JSONArray().apply { _bookmarks.value.forEach { put(it.toJson()) } }.toString())
         }
         if (widgets) {
             widgetJob?.cancel()
@@ -211,6 +224,7 @@ object Store {
         val clips = _highlights.value.filter { it.bookId == id && it.isClip }.map { it.id }
         _books.value = _books.value.filterNot { it.id == id }
         _highlights.value = _highlights.value.filterNot { it.bookId == id }
+        _bookmarks.value = _bookmarks.value.filterNot { it.bookId == id }
         contentCache.remove(id)
         io.launch {
             booksDir.listFiles()?.filter { it.name.startsWith(id) }?.forEach { it.delete() }
@@ -229,7 +243,10 @@ object Store {
         if (ms <= 0) return
         _books.value = _books.value.map { if (it.id == id) it.copy(readMs = it.readMs + ms) else it }
         _totalReadMs.value += ms
-        prefs.edit().putLong("totalReadMs", _totalReadMs.value).apply()
+        val day = java.time.LocalDate.now().toString()
+        _daily.value = _daily.value + (day to ((_daily.value[day] ?: 0L) + ms))
+        val o = org.json.JSONObject(); _daily.value.forEach { (k, v) -> o.put(k, v) }
+        prefs.edit().putLong("totalReadMs", _totalReadMs.value).putString("daily", o.toString()).apply()
         scheduleSave(widgets = false)
     }
 
@@ -314,6 +331,12 @@ object Store {
         scheduleSave()
     }
 
+    // ---------- Bookmarks ----------
+
+    fun addBookmark(b: Bookmark) { _bookmarks.value = _bookmarks.value + b; scheduleSave(widgets = false) }
+
+    fun removeBookmark(id: String) { _bookmarks.value = _bookmarks.value.filterNot { it.id == id }; scheduleSave(widgets = false) }
+
     // ---------- Export ----------
 
     fun highlightsMarkdown(bookIds: List<String>?): String {
@@ -336,6 +359,7 @@ object Store {
                 if (h.isClip) sb.append("> 🖼 Clip from page ${h.para + 1} (clips/${h.id}.webp)\n")
                 else h.text.trim().lines().forEach { sb.append("> ").append(it).append('\n') }
                 sb.append("\n")
+                if (h.note.isNotBlank()) sb.append("**Note:** ").append(h.note.trim()).append("\n\n")
                 val meta = listOfNotNull(if (h.favorite) "♥ favourite" else null, df.format(Date(h.createdAt)))
                 sb.append("<sub>").append(meta.joinToString(" · ")).append("</sub>\n\n")
             }
@@ -415,7 +439,8 @@ object Store {
             .putBoolean("grain", s.grain).putBoolean("mono", s.mono)
             .putFloat("wallDim", s.wallDim).putBoolean("wallReader", s.wallInReader)
             .putFloat("grainAmt", s.grainAmount).putInt("pdfMode", s.pdfMode)
-            .putBoolean("haptics", s.haptics).putInt("hapticLevel", s.hapticLevel).putBoolean("volKeys", s.volumeKeys).putInt("pageAnim", s.pageAnim).putBoolean("coverScreen", s.coverScreen).putInt("uiMode", s.uiMode)
+            .putBoolean("haptics", s.haptics).putInt("hapticLevel", s.hapticLevel).putBoolean("volKeys", s.volumeKeys).putInt("pageAnim", s.pageAnim).putBoolean("coverAuto", s.coverScreen).putInt("uiMode", s.uiMode)
+            .putBoolean("twoPageOpen", s.twoPageUnfolded).putInt("goalMin", s.dailyGoalMin)
             .apply()
     }
 

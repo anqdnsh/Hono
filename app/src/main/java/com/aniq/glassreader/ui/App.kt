@@ -258,6 +258,7 @@ private fun Home(
         ) { t ->
             when (t) {
                 0 -> LibraryScreen(haze, importing, onOpen = { onOpen(it, null, 0) }, onExport = onExport, onSettings = { settingsOpen = true }, onImport = onImport, onOpenAt = onOpen)
+                2 -> AchievementsScreen(haze, onSettings = { settingsOpen = true })
                 else -> HighlightsScreen(haze, onOpen = onOpen, onExportAll = { onExport(ExportKind.AllHighlights, null) }, onSettings = { settingsOpen = true })
             }
         }
@@ -286,7 +287,7 @@ private fun Home(
 
 @Composable
 private fun GlassTabBar(selected: Int, onSelect: (Int) -> Unit, haze: HazeState, modifier: Modifier = Modifier) {
-    val tabs = listOf("Library" to Line.Books, "Highlights" to Line.Quote)
+    val tabs = listOf("Library" to Line.Books, "Highlights" to Line.Quote, "Goals" to Line.Trophy)
     val shape = RoundedCornerShape(50)
     val itemW = 84.dp
     Box(

@@ -113,6 +113,8 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
                     }
                     Line()
                     Pad { ToggleRow("Volume keys turn pages", "Down for next, up for previous", s.volumeKeys, UiTheme) { v -> set { it.copy(volumeKeys = v) } } }
+                    Line()
+                    Pad { ToggleRow("Two pages when unfolded", "On the big screen, even held upright. Sideways is always two pages", s.twoPageUnfolded, UiTheme) { v -> set { it.copy(twoPageUnfolded = v) } } }
                 }
             }
 
@@ -152,10 +154,10 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
                 val coverOk by com.aniq.glassreader.CoverDisplay.supported.collectAsState()
                 Section(
                     "Outer screen",
-                    if (coverOk) "Shows while you read with the phone unfolded."
+                    if (coverOk) "Turns on by itself when you read sideways with two pages, and off when you turn the phone upright."
                     else "This phone doesn't offer outer-screen display to apps right now. Try with the phone unfolded, or it may not be supported.",
                 ) {
-                    Pad { ToggleRow("Show book cover on outer screen", "The cover, title and progress of what you're reading", s.coverScreen, UiTheme) { v -> set { it.copy(coverScreen = v) } } }
+                    Pad { ToggleRow("Show book cover on outer screen", "Fills the outer screen with the cover of what you're reading", s.coverScreen, UiTheme) { v -> set { it.copy(coverScreen = v) } } }
                 }
             }
 

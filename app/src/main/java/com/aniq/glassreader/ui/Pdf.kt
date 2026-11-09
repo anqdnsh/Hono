@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -286,7 +287,11 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     val count = d.count
     var page by remember { mutableIntStateOf((jumpPage ?: book.progressIndex).coerceIn(0, count - 1)) }
     var chrome by remember { mutableStateOf(false) }
-    var sheet by remember { mutableIntStateOf(0) } // 0 none, 1 settings, 2 clips
+    var sheet by remember { mutableIntStateOf(0) } // 0 none, 1 settings, 2 clips, 3 define, 4 note
+    var defineWord by remember { mutableStateOf("") }
+    var noteFor by remember { mutableStateOf<Highlight?>(null) }
+    val allMarks by Store.bookmarks.collectAsState()
+    val bookMarks = remember(allMarks, book.id) { allMarks.filter { it.bookId == book.id }.sortedBy { it.para } }
     var region by remember { mutableStateOf<Rect?>(null) }   // in box coordinates
     var selecting by remember { mutableStateOf(false) }
     var active by remember { mutableStateOf<Highlight?>(null) }
@@ -329,6 +334,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     }
     LaunchedEffect(page) { delay(300); Store.updateProgress(book.id, page, 0, count) }
     ReadingClock(book.id, page)
+    GoalWatcher { toast = "Daily goal reached"; haptics.play(Haptic.Confirm) }
     val loupe = rememberLoupe()
     LaunchedEffect(toast) { if (toast != null) { delay(1600); toast = null } }
 
@@ -348,6 +354,16 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         // landscape (the Fold opened sideways): one page on each half of the screen
         val spread = constraints.maxWidth > constraints.maxHeight && count > 1
         val step = if (spread) 2 else 1
+        // the outer screen shows the cover only while reading two pages sideways
+        LaunchedEffect(spread) { com.aniq.glassreader.CoverDisplay.landscape.value = spread }
+        DisposableEffect(Unit) { onDispose { com.aniq.glassreader.CoverDisplay.landscape.value = false } }
+        val markHere = bookMarks.firstOrNull { it.para in page until page + step }
+        fun toggleBookmark() {
+            val m = markHere
+            if (m != null) { Store.removeBookmark(m.id); haptics.play(Haptic.ToggleOff); toast = "Bookmark removed"; return }
+            Store.addBookmark(com.aniq.glassreader.data.Bookmark(UUID.randomUUID().toString(), book.id, page, 0, "Page ${page + 1}", ""))
+            haptics.play(Haptic.Confirm); toast = "Bookmarked"
+        }
         val slotW = if (spread) fullW / 2f else fullW
         val renderW = (slotW * 1.3f).roundToInt()
         LaunchedEffect(spread) { if (spread && page % 2 == 1) page -= 1 }
@@ -596,6 +612,16 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             )
         }
 
+        // a small ribbon on a bookmarked page
+        androidx.compose.animation.AnimatedVisibility(
+            visible = markHere != null,
+            enter = fadeIn(tween(160)) + slideInVertically(spring(0.6f, 500f)) { -it },
+            exit = fadeOut(tween(140)) + slideOutVertically { -it },
+            modifier = Modifier.align(Alignment.TopEnd).padding(end = 22.dp),
+        ) {
+            Icon(Line.BookmarkFill, "Bookmarked", tint = Color(0xFFFF9F0A), modifier = Modifier.size(width = 18.dp, height = 30.dp))
+        }
+
         // quiet furniture
         val furniture by animateFloatAsState(if (chrome) 0f else 1f, tween(200), label = "f")
         Text(
@@ -621,7 +647,10 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                             .padding(horizontal = 18.dp, vertical = 12.dp),
                     )
                 }
-                GlassCircle(Line.Quote, "Clips", haze, tint = theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light) { sheet = 2 }
+                GlassCircle(if (markHere != null) Line.BookmarkFill else Line.Bookmark, "Bookmark this page", haze,
+                    tint = if (markHere != null) Color(0xFFFF9F0A) else theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light) { toggleBookmark() }
+                androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
+                GlassCircle(Line.Quote, "Highlights and bookmarks", haze, tint = theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light) { sheet = 2 }
             }
         }
 
@@ -697,6 +726,8 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                 }
             }
             Divider(theme)
+            val word = lastSel?.let { pickWord(it.text) }
+            if (word != null) BarIcon(Line.Define, theme) { defineWord = word; tsel = null; sheet = 3 }
             BarIcon(Line.Copy, theme) {
                 lastSel?.let { clipboardPdf.setText(androidx.compose.ui.text.AnnotatedString(it.text)) }
                 haptics.play(Haptic.Confirm); tsel = null; toast = "Copied"
@@ -716,16 +747,29 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             BarIcon(if (h?.favorite == true) Line.HeartFill else Line.Heart, theme, tint = if (h?.favorite == true) Color(0xFFFF375F) else theme.text) {
                 h?.let { Store.updateHighlight(it.id) { x -> x.copy(favorite = !x.favorite) } }
             }
+            BarIcon(Line.Note, theme, tint = if (h?.note?.isNotBlank() == true) theme.accent else theme.text) { noteFor = h; active = null; sheet = 4 }
             BarIcon(Line.Trash, theme) { h?.let { Store.removeHighlight(it.id) }; haptics.play(Haptic.Reject); active = null; toast = "Removed" }
         }
 
         GlassSheet(sheet != 0, haze, theme, bottomInset, onDismiss = { sheet = 0 }) {
             var last by remember { mutableIntStateOf(1) }
             if (sheet != 0) last = sheet
+            var marksTab by remember { mutableIntStateOf(0) }
             if (last == 1) SettingsSheet(settings, theme, pdf = true)
+            else if (last == 3) DefineContent(defineWord, theme.text, theme.sub)
+            else if (last == 4) noteFor?.let { h ->
+                key(h.id) {
+                    NoteEditor(h.text, clips.firstOrNull { it.id == h.id }?.note ?: h.note, theme.text, theme.sub) { t ->
+                        Store.updateHighlight(h.id) { x -> x.copy(note = t) }
+                        sheet = 0; toast = if (t.isBlank()) "Note removed" else "Note saved"
+                    }
+                }
+            }
             else {
-                SheetTitle("Highlights", theme)
-                if (clips.isEmpty()) {
+                Segmented(listOf("Highlights", "Bookmarks"), marksTab, { marksTab = it }, Modifier.padding(horizontal = 20.dp, vertical = 6.dp), fg = theme.text)
+                if (marksTab == 1) BookmarkList(bookMarks, theme.text, theme.sub, "Tap the bookmark at the top while reading to save your place.",
+                    onJump = { jump(it.para) }, onRemove = { Store.removeBookmark(it.id) })
+                else if (clips.isEmpty()) {
                     Text("Hold on a word, then drag across the text you want.", color = theme.sub, fontFamily = Inter,
                         fontSize = 14.sp, modifier = Modifier.padding(24.dp))
                 } else LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -741,6 +785,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                                 Image(it, null, contentScale = ContentScale.Fit, colorFilter = filter,
                                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)))
                             } else Text(h.text, color = theme.text, fontFamily = Inter, fontSize = 15.sp, lineHeight = 21.sp, maxLines = 5, overflow = TextOverflow.Ellipsis)
+                            NoteLine(h.note, theme.text, maxLines = 3)
                             Text("Page ${h.para + 1}", color = theme.sub, fontFamily = Inter, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
                         }
                     }

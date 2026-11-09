@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -288,6 +289,7 @@ private fun Frame(h: Highlight, bookTitle: String, modifier: Modifier, onClick: 
                 maxLines = 10, overflow = TextOverflow.Ellipsis,
             )
         }
+        NoteLine(h.note, Primary, maxLines = 4)
         Spacer(Modifier.height(16.dp))
         Box(Modifier.fillMaxWidth().height(0.6.dp).background(Primary.copy(alpha = 0.12f)))
         Spacer(Modifier.height(10.dp))
@@ -319,6 +321,7 @@ private fun Exhibit(
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LaunchedEffect(list.size) { if (list.isEmpty()) onClose() }
     val haptics = rememberHaptics()
+    var editing by remember { mutableStateOf<Highlight?>(null) }
     LaunchedEffect(pager) {
         var first = true
         androidx.compose.runtime.snapshotFlow { pager.currentPage }.collect { if (!first) haptics.play(Haptic.PageTurn); first = false }
@@ -349,6 +352,9 @@ private fun Exhibit(
                             modifier = Modifier.widthIn(max = 640.dp),
                         )
                     }
+                    if (h.note.isNotBlank()) Text(h.note.trim(), color = Color.White.copy(alpha = 0.8f), fontSize = 16.sp, lineHeight = 22.sp,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, maxLines = 6, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 18.dp).widthIn(max = 640.dp))
                     Spacer(Modifier.height(24.dp))
                     Text(titles[h.bookId] ?: "", color = Color.White.copy(alpha = 0.75f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     Text(listOf(h.chapter.takeIf { it != titles[h.bookId] }.orEmpty(), df.format(Date(h.createdAt))).filter { it.isNotBlank() }.joinToString(" · "),
@@ -379,8 +385,36 @@ private fun Exhibit(
                 cur?.let { Store.updateHighlight(it.id) { x -> x.copy(favorite = !x.favorite) } }
                 haptics.play(if (cur?.favorite == true) Haptic.ToggleOff else Haptic.Confirm)
             }
+            ExhibitAction(Line.Note, if (cur?.note?.isNotBlank() == true) "Edit note" else "Note") { editing = cur }
             if (cur?.isClip == false) ExhibitAction(Line.Copy, "Copy") { clipboard.setText(AnnotatedString(cur.text)); haptics.play(Haptic.Confirm) }
             ExhibitAction(Line.Trash, "Delete") { cur?.let { Store.removeHighlight(it.id) }; haptics.play(Haptic.Reject) }
+        }
+
+        // note editor, over the piece
+        AnimatedVisibility(editing != null, enter = fadeIn(tween(180)), exit = fadeOut(tween(160))) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).bouncyClick(pressedScale = 1f, haptic = null) { editing = null })
+        }
+        AnimatedVisibility(
+            editing != null,
+            enter = androidx.compose.animation.slideInVertically(spring(0.85f, 420f)) { it } + fadeIn(tween(150)),
+            exit = androidx.compose.animation.slideOutVertically(spring(0.95f, 600f)) { it } + fadeOut(tween(150)),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            var last by remember { mutableStateOf<Highlight?>(null) }
+            editing?.let { last = it }
+            val h = last ?: return@AnimatedVisibility
+            BackHandler { editing = null }
+            Box(
+                Modifier.imePadding().padding(start = 8.dp, end = 8.dp, bottom = bottom + 8.dp).widthIn(max = 620.dp).fillMaxWidth()
+                    .clip(RoundedCornerShape(32.dp)).background(Color(0xFF1C1C1E)).padding(vertical = 14.dp)
+            ) {
+                androidx.compose.runtime.key(h.id) {
+                    NoteEditor(h.text, h.note, Color.White, Color.White.copy(alpha = 0.55f)) { t ->
+                        Store.updateHighlight(h.id) { x -> x.copy(note = t) }
+                        haptics.play(Haptic.Confirm); editing = null
+                    }
+                }
+            }
         }
     }
 }
