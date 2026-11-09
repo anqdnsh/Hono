@@ -27,23 +27,31 @@ class ContinueReadingWidget : AppWidgetProvider() {
 
 class QuoteWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        Store.init(context); Widgets.updateQuote(context, manager, ids)
+        Store.init(context)
+        if (!Widgets.cycleIfDue(context)) Widgets.updateQuote(context, manager, ids)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        if (intent.action == Widgets.ACTION_NEXT) { Store.init(context); Widgets.nextQuote(context) }
+        when (intent.action) {
+            Widgets.ACTION_NEXT -> { Store.init(context); Widgets.nextQuote(context) }
+            Widgets.ACTION_CYCLE -> { Store.init(context); Widgets.cycleIfDue(context) }
+        }
     }
 }
 
 class HonoWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        Store.init(context); Widgets.updateHono(context, manager, ids)
+        Store.init(context)
+        if (!Widgets.cycleIfDue(context)) Widgets.updateHono(context, manager, ids)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        if (intent.action == Widgets.ACTION_NEXT) { Store.init(context); Widgets.nextQuote(context) }
+        when (intent.action) {
+            Widgets.ACTION_NEXT -> { Store.init(context); Widgets.nextQuote(context) }
+            Widgets.ACTION_CYCLE -> { Store.init(context); Widgets.cycleIfDue(context) }
+        }
     }
 }
 
@@ -55,6 +63,8 @@ class BookWidget : AppWidgetProvider() {
 
 object Widgets {
     const val ACTION_NEXT = "com.aniq.glassreader.NEXT_QUOTE"
+    const val ACTION_CYCLE = "com.aniq.glassreader.CYCLE_QUOTE"
+    private const val CYCLE_MS = 2 * 60 * 60 * 1000L
     const val EXTRA_OPEN_BOOK = "open_book"
     const val EXTRA_OPEN_PARA = "open_para"
     const val EXTRA_OPEN_HIGHLIGHTS = "open_highlights"
@@ -77,7 +87,7 @@ object Widgets {
             v.setProgressBar(R.id.progress, 1000, (book.progress * 1000).toInt(), false)
             v.setTextViewText(R.id.percent, "${(book.progress * 100).toInt()}%")
             val cover = Store.cover(book.id, 420)
-            if (cover != null) v.setImageViewBitmap(R.id.cover, rounded(cover, 10f)) else v.setImageViewResource(R.id.cover, R.mipmap.ic_launcher)
+            if (cover != null) v.setImageViewBitmap(R.id.cover, bookObject(cover)) else v.setImageViewResource(R.id.cover, R.mipmap.ic_launcher)
             v.setContentDescription(R.id.root, "Continue ${book.title}")
             v.setOnClickPendingIntent(R.id.root, openIntent(context, 8) { putExtra(EXTRA_OPEN_BOOK, book.id) })
         } else {
@@ -87,6 +97,31 @@ object Widgets {
         ids.forEach { m.updateAppWidget(it, v) }
     }
 
+    /**
+     * Moves the quote widgets on to a new highlight once 2 hours have passed since the last change.
+     * Driven by an inexact alarm plus the widgets' own 2-hour update, so a missed alarm
+     * (after a reboot, say) still catches up. Returns true if it changed the quote.
+     */
+    fun cycleIfDue(context: Context): Boolean {
+        scheduleCycle(context)
+        // a little slack so an alarm that fires a few minutes early still counts
+        if (System.currentTimeMillis() - Store.quoteChangedAt < CYCLE_MS - 10 * 60 * 1000L) return false
+        nextQuote(context)
+        return true
+    }
+
+    private fun scheduleCycle(context: Context) {
+        val am = context.getSystemService(android.app.AlarmManager::class.java) ?: return
+        val cls = if (ids(context, AppWidgetManager.getInstance(context), QuoteWidget::class.java).isNotEmpty()) QuoteWidget::class.java else HonoWidget::class.java
+        val pi = PendingIntent.getBroadcast(
+            context, 9, Intent(context, cls).setAction(ACTION_CYCLE),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        // non-waking: if the phone is asleep it simply changes when the screen comes back on
+        val first = (Store.quoteChangedAt + CYCLE_MS).coerceAtLeast(System.currentTimeMillis() + 60_000L)
+        am.setInexactRepeating(android.app.AlarmManager.RTC, first, CYCLE_MS, pi)
+    }
+
     fun nextQuote(context: Context) {
         val size = quotes().size
         if (size > 1) {
@@ -94,6 +129,8 @@ object Widgets {
             if (next == Store.quoteIndex.mod(size)) next = (next + 1) % size
             Store.quoteIndex = next
         }
+        Store.quoteChangedAt = System.currentTimeMillis()
+        scheduleCycle(context)
         val m = AppWidgetManager.getInstance(context)
         updateQuote(context, m, ids(context, m, QuoteWidget::class.java))
         updateHono(context, m, ids(context, m, HonoWidget::class.java))
@@ -126,7 +163,7 @@ object Widgets {
             v.setTextViewText(R.id.percent, "${(book.progress * 100).toInt()}% read")
             v.setTextViewText(R.id.hours, "${formatReadTime(Store.totalReadMs.value)} total")
             val cover = Store.cover(book.id, 300)
-            if (cover != null) v.setImageViewBitmap(R.id.cover, rounded(cover, 14f))
+            if (cover != null) v.setImageViewBitmap(R.id.cover, bookObject(cover))
             else v.setImageViewResource(R.id.cover, R.mipmap.ic_launcher)
             v.setOnClickPendingIntent(clickId, openIntent(context, code) { putExtra(EXTRA_OPEN_BOOK, book.id) })
         } else {
@@ -161,6 +198,7 @@ object Widgets {
 
     fun updateQuote(context: Context, m: AppWidgetManager, ids: IntArray) {
         if (ids.isEmpty()) return
+        scheduleCycle(context)
         val v = RemoteViews(context.packageName, R.layout.widget_quote)
         bindQuote(context, v, R.id.root, 2)
         v.setOnClickPendingIntent(R.id.next, nextIntent(context, QuoteWidget::class.java, 4))
@@ -176,14 +214,56 @@ object Widgets {
         ids.forEach { m.updateAppWidget(it, v) }
     }
 
-    private fun rounded(src: Bitmap, radiusDp: Float): Bitmap {
-        val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+    /**
+     * The cover drawn as a physical book: soft drop shadow, a bound spine down the left edge,
+     * a sheen across the top, squarer corners at the spine, and a glow in the cover's own colour
+     * behind it so each book tints the glass a little.
+     */
+    private fun bookObject(src: Bitmap): Bitmap {
+        val w = src.width.toFloat(); val h = src.height.toFloat()
+        val pad = w * 0.30f
+        val out = Bitmap.createBitmap((w + pad * 2).toInt(), (h + pad * 2).toInt(), Bitmap.Config.ARGB_8888)
         val c = Canvas(out)
-        val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        val r = radiusDp * src.width / 120f
-        c.drawRoundRect(RectF(0f, 0f, src.width.toFloat(), src.height.toFloat()), r, r, p)
-        p.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
-        c.drawBitmap(src, 0f, 0f, p)
+        val box = RectF(pad, pad, pad + w, pad + h)
+
+        // glow: the cover's average colour, lifted a touch, blurred out behind it
+        val avg = Bitmap.createScaledBitmap(src, 1, 1, true).getPixel(0, 0)
+        val hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(avg, it) }
+        hsv[1] = (hsv[1] * 1.2f).coerceAtMost(1f); hsv[2] = (hsv[2] * 1.5f).coerceIn(0.35f, 0.9f)
+        c.drawOval(RectF(pad - w * 0.05f, pad + h * 0.08f, pad + w * 1.05f, pad + h * 0.95f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.HSVToColor(130, hsv)
+            maskFilter = android.graphics.BlurMaskFilter(w * 0.22f, android.graphics.BlurMaskFilter.Blur.NORMAL)
+        })
+
+        val rs = w * 0.035f; val re = w * 0.08f   // spine corners squarer than the open edge
+        val shape = android.graphics.Path().apply {
+            addRoundRect(box, floatArrayOf(rs, rs, re, re, re, re, rs, rs), android.graphics.Path.Direction.CW)
+        }
+        // drop shadow (offset down, so the book stands on the glass)
+        c.drawPath(android.graphics.Path(shape).apply { offset(0f, h * 0.035f) }, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x99000000.toInt()
+            maskFilter = android.graphics.BlurMaskFilter(w * 0.07f, android.graphics.BlurMaskFilter.Blur.NORMAL)
+        })
+
+        c.save(); c.clipPath(shape)
+        c.drawBitmap(src, null, box, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+        // spine: dark crease, bright ridge, soft fade
+        c.drawRect(box.left, box.top, box.left + w * 0.13f, box.bottom, Paint().apply {
+            shader = android.graphics.LinearGradient(box.left, 0f, box.left + w * 0.13f, 0f,
+                intArrayOf(0x66000000, 0x38FFFFFF, 0x1A000000, 0x00000000),
+                floatArrayOf(0f, 0.25f, 0.5f, 1f), android.graphics.Shader.TileMode.CLAMP)
+        })
+        // sheen across the top
+        c.drawRect(box.left, box.top, box.right, box.top + h * 0.45f, Paint().apply {
+            shader = android.graphics.LinearGradient(0f, box.top, 0f, box.top + h * 0.45f,
+                0x24FFFFFF, 0x00FFFFFF, android.graphics.Shader.TileMode.CLAMP)
+        })
+        c.restore()
+        // hairline edge so dark covers still separate from dark glass
+        c.drawPath(shape, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = w * 0.006f; color = 0x2EFFFFFF
+        })
         return out
     }
+
 }

@@ -421,4 +421,9 @@ object Store {
     var quoteIndex: Int
         get() = prefs.getInt("quoteIdx", 0)
         set(v) { prefs.edit().putInt("quoteIdx", v).apply() }
+
+    /** When the widget quote last changed (by the 2-hour cycle or the refresh button). */
+    var quoteChangedAt: Long
+        get() = prefs.getLong("quoteAt", 0L)
+        set(v) { prefs.edit().putLong("quoteAt", v).apply() }
 }

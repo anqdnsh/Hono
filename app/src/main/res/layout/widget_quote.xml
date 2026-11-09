@@ -4,7 +4,7 @@
     android:background="@drawable/widget_glass" android:orientation="vertical" android:padding="16dp">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
         android:gravity="center_vertical" android:orientation="horizontal">
-        <ImageView android:id="@+id/dot" android:layout_width="18dp" android:layout_height="3dp"
+        <ImageView android:id="@+id/dot" android:visibility="gone" android:layout_width="18dp" android:layout_height="3dp"
             android:src="@drawable/widget_bar" />
         <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" />
         <ImageView android:id="@+id/next" android:layout_width="30dp" android:layout_height="30dp"
@@ -14,9 +14,9 @@
         android:layout_marginTop="6dp" android:layout_weight="1" android:ellipsize="end"
         android:gravity="center_vertical" android:maxLines="8"
         android:text="Hold on a sentence while reading to highlight it. It will appear here."
-        android:textColor="#FF1C1C1E" android:textSize="15sp" android:lineSpacingMultiplier="1.12"
+        android:textColor="#FFF5F5F7" android:textSize="15sp" android:lineSpacingMultiplier="1.12"
         android:fontFamily="@font/inter_medium" />
     <TextView android:id="@+id/source" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginTop="6dp" android:ellipsize="end" android:maxLines="1"
-        android:textColor="#FF8A8A8E" android:textSize="11sp" android:fontFamily="@font/inter_medium" />
+        android:textColor="#A6FFFFFF" android:textSize="11sp" android:fontFamily="@font/inter_medium" />
 </LinearLayout>

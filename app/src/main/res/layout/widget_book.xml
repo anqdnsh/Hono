@@ -4,7 +4,7 @@
     android:background="@drawable/widget_glass" android:gravity="center_horizontal"
     android:orientation="vertical" android:padding="14dp">
     <ImageView android:id="@+id/cover" android:layout_width="match_parent" android:layout_height="0dp"
-        android:layout_weight="1" android:adjustViewBounds="true" android:scaleType="fitCenter"
+        android:layout_weight="1" android:scaleType="fitCenter"
         android:src="@mipmap/ic_launcher" />
     <ProgressBar android:id="@+id/progress" style="@android:style/Widget.ProgressBar.Horizontal"
         android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="12dp"
@@ -14,10 +14,10 @@
         <ImageView android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_clock" />
         <TextView android:id="@+id/hours" android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:layout_marginStart="5dp" android:maxLines="1" android:ellipsize="end"
-            android:text="0m read" android:textColor="#FF1C1C1E" android:textSize="11sp"
+            android:text="0m read" android:textColor="#FFF5F5F7" android:textSize="11sp"
             android:fontFamily="@font/inter_semibold" />
         <TextView android:id="@+id/percent" android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="0%" android:textColor="#FF8A8A8E" android:textSize="11sp"
+            android:text="0%" android:textColor="#A6FFFFFF" android:textSize="11sp"
             android:fontFamily="@font/inter_medium" />
     </LinearLayout>
 </LinearLayout>
