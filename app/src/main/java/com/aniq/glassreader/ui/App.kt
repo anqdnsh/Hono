@@ -239,18 +239,8 @@ private fun Home(
     val haze = remember { HazeState() }
     var settingsOpen by remember { mutableStateOf(false) }
     BackHandler(enabled = settingsOpen) { settingsOpen = false }
-    var barVisible by remember { mutableStateOf(true) }
-    LaunchedEffect(tab) { barVisible = true }
-    // iOS 26-style: the tab bar steps aside while you scroll down, returns when you scroll up
-    val scrollWatcher = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (available.y < -4f) barVisible = false else if (available.y > 4f) barVisible = true
-                return Offset.Zero
-            }
-        }
-    }
-    Box(Modifier.fillMaxSize().nestedScroll(scrollWatcher)) {
+    // the tab bar stays pinned to the bottom while you scroll
+    Box(Modifier.fillMaxSize()) {
         AnimatedContent(
             targetState = tab,
             transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(160)) },
@@ -275,7 +265,7 @@ private fun Home(
         }
 
         AnimatedVisibility(
-            visible = barVisible && !settingsOpen && Overlays.open == 0,
+            visible = !settingsOpen && Overlays.open == 0,
             enter = slideInVertically(spring(0.8f, 500f)) { it * 2 } + fadeIn(tween(160)),
             exit = slideOutVertically(spring(0.9f, 500f)) { it * 2 } + fadeOut(tween(160)),
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 10.dp),
