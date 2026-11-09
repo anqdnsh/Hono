@@ -290,6 +290,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     var sheet by remember { mutableIntStateOf(0) } // 0 none, 1 settings, 2 clips, 3 define, 4 note
     var defineWord by remember { mutableStateOf("") }
     var noteFor by remember { mutableStateOf<Highlight?>(null) }
+    var lastColor by remember { mutableIntStateOf(0) }
     val allMarks by Store.bookmarks.collectAsState()
     val bookMarks = remember(allMarks, book.id) { allMarks.filter { it.bookId == book.id }.sortedBy { it.para } }
     var region by remember { mutableStateOf<Rect?>(null) }   // in box coordinates
@@ -719,12 +720,21 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                 ColorDot(col, false) {
                     lastSel?.let { t ->
                         Store.addHighlight(Highlight(UUID.randomUUID().toString(), book.id, t.page, 0, 0, t.text, i, "Page ${t.page + 1}", rect = t.rects))
-                        haptics.play(Haptic.Confirm); toast = "Saved to Highlights"
+                        haptics.play(Haptic.Confirm); toast = "Saved to Highlights"; lastColor = i
                     }
                     tsel = null
                 }
             }
             Divider(theme)
+            // highlight and write a note in one go (uses the last colour you picked)
+            BarIcon(Line.Note, theme) {
+                lastSel?.let { t ->
+                    val h = Highlight(UUID.randomUUID().toString(), book.id, t.page, 0, 0, t.text, lastColor, "Page ${t.page + 1}", rect = t.rects)
+                    Store.addHighlight(h); haptics.play(Haptic.Confirm)
+                    noteFor = h; sheet = 4
+                }
+                tsel = null
+            }
             val word = lastSel?.let { pickWord(it.text) }
             if (word != null) BarIcon(Line.Define, theme) { defineWord = word; tsel = null; sheet = 3 }
             BarIcon(Line.Copy, theme) {

@@ -306,6 +306,7 @@ private fun ReaderBody(
     var toast by remember { mutableStateOf<String?>(null) }
     var defineWord by remember { mutableStateOf("") }
     var noteFor by remember { mutableStateOf<Highlight?>(null) }
+    var lastColor by remember { mutableStateOf(0) }
 
     val allHl by Store.highlights.collectAsState()
     val allMarks by Store.bookmarks.collectAsState()
@@ -503,23 +504,25 @@ private fun ReaderBody(
         BackHandler(enabled = selection != null || active != null || sheet != Sheet.None) { clearTransient() }
         val jumpRef by rememberUpdatedState<(Int) -> Unit>({ p -> jump(p) })
 
-        fun commit(color: Int) {
-            val s = selection ?: return
+        fun commit(color: Int, quiet: Boolean = false): Highlight? {
+            val s = selection ?: return null
             val para = c.paras[s.para]
             val overlaps = bookHl.filter { it.para == s.para && it.start < s.end && s.start < it.end }
             val start = min(s.start, overlaps.minOfOrNull { it.start } ?: s.start)
             val end = max(s.end, overlaps.maxOfOrNull { it.end } ?: s.end)
             overlaps.forEach { Store.removeHighlight(it.id) }
-            Store.addHighlight(
-                Highlight(
-                    id = UUID.randomUUID().toString(), bookId = book.id, para = s.para, start = start, end = end,
-                    text = para.text.substring(start, end).trim(), color = color,
-                    chapter = c.chapterAt(s.para)?.title ?: "", favorite = overlaps.any { it.favorite },
-                )
+            val h = Highlight(
+                id = UUID.randomUUID().toString(), bookId = book.id, para = s.para, start = start, end = end,
+                text = para.text.substring(start, end).trim(), color = color,
+                chapter = c.chapterAt(s.para)?.title ?: "", favorite = overlaps.any { it.favorite },
+                note = overlaps.firstOrNull { it.note.isNotBlank() }?.note ?: "",
             )
+            Store.addHighlight(h)
             haptics.play(Haptic.Confirm)
             selection = null
-            toast = "Saved to Highlights"
+            lastColor = color
+            if (!quiet) toast = "Saved to Highlights"
+            return h
         }
 
         // ---- the pages ----
@@ -679,6 +682,8 @@ private fun ReaderBody(
         Toolbar(visible = selection != null && !dragging, haze, theme, bottomInset) {
             HighlightColors.forEachIndexed { i, col -> ColorDot(col, false) { commit(i) } }
             Divider(theme)
+            // highlight and write a note in one go (uses the last colour you picked)
+            BarIcon(Line.Note, theme) { commit(lastColor, quiet = true)?.let { noteFor = it; sheet = Sheet.Note } }
             val word = lastSel?.let { s -> s.word ?: pickWord(c.paras[s.para].text.substring(s.start.coerceIn(0, c.paras[s.para].text.length), s.end.coerceIn(0, c.paras[s.para].text.length))) }
             if (word != null) BarIcon(Line.Define, theme) { defineWord = word; selection = null; sheet = Sheet.Define }
             BarIcon(Line.Paragraph, theme) { lastSel?.let { s -> selection = Sel(s.para, 0, c.paras[s.para].text.length) } }
