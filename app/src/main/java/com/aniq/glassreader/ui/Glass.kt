@@ -283,7 +283,7 @@ fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCover(img: androidx.com
     )
 }
 
-/** Black → graphite backdrop with a soft grey glow, or the user's own wallpaper. */
+/** Plain black (dark mode) or plain white (light mode), or the user's own wallpaper. */
 fun Modifier.glassBackdrop(): Modifier = this.drawBehind {
     val w = size.width; val h = size.height
     val wall = Wall.image
@@ -298,14 +298,8 @@ fun Modifier.glassBackdrop(): Modifier = this.drawBehind {
         ))
         return@drawBehind
     }
-    if (!dark) {
-        drawRect(Color.White)
-        drawRect(Brush.verticalGradient(0f to Color(0xFFF2F2F5), 0.4f to Color.White), size = androidx.compose.ui.geometry.Size(w, h * 0.5f))
-        return@drawBehind
-    }
-    // near-black with the faintest graphite lift at the top, like Apple Music in dark mode
-    drawRect(Color.Black)
-    drawRect(Brush.verticalGradient(0f to Color(0xFF1A1A1C), 0.35f to Color(0xFF0A0A0B), 0.7f to Color.Black), size = androidx.compose.ui.geometry.Size(w, h * 0.7f))
+    // no wallpaper chosen: plain white in light mode, plain black in dark mode
+    drawRect(if (dark) Color.Black else Color.White)
 }
 
 // ---------------- Interaction ----------------

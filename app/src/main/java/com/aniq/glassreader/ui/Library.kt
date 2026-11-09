@@ -208,16 +208,22 @@ private fun ContinueCard(book: Book, onOpen: (String) -> Unit, onOpenAt: (String
             .liquidGlass(shape)
             .padding(16.dp),
     ) {
-        // total time read, top-left
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 2.dp, bottom = 12.dp)) {
-            Icon(Line.Clock, null, tint = Primary.copy(alpha = 0.75f), modifier = Modifier.size(15.dp))
-            Text(formatReadTime(totalMs), color = Primary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 6.dp))
-            Text("total reading", color = Secondary, fontSize = 13.sp, modifier = Modifier.padding(start = 5.dp))
-        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Cover(book, Modifier.width(76.dp).aspectRatio(0.67f))
             Column(Modifier.padding(start = 16.dp).weight(1f)) {
+                // total time read, top-right
+                Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End) {
+                    Row(
+                        Modifier.clip(RoundedCornerShape(50)).background(Primary.copy(alpha = 0.10f))
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Line.Clock, null, tint = Primary, modifier = Modifier.size(13.dp))
+                        Text("${formatReadTime(totalMs)} read", color = Primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 5.dp))
+                    }
+                }
                 Text(book.title, color = Primary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp,
                     maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 22.sp)
                 if (book.author.isNotBlank()) Text(book.author, color = Secondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
