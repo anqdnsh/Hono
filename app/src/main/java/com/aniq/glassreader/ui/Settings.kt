@@ -169,8 +169,7 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
             }
 
             item {
-                Section("Haptics and sound") {
-                    Pad { ToggleRow("Page turn sound", "A soft paper sound as pages turn. Muted when your phone is on silent or vibrate", s.pageSound, UiTheme) { v -> set { it.copy(pageSound = v) } } }
+                Section("Haptics") {
                     Pad { ToggleRow("Haptic feedback", "Feel page turns, highlights and controls", s.haptics, UiTheme) { v -> set { it.copy(haptics = v) } } }
                     AnimatedVisibility(s.haptics, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         Pad {

@@ -98,7 +98,6 @@ object Store {
             pdfMode = prefs.getInt("pdfMode", d.pdfMode),
             haptics = prefs.getBoolean("haptics", d.haptics),
             hapticLevel = prefs.getInt("hapticLevel", d.hapticLevel),
-            pageSound = prefs.getBoolean("pageSound", d.pageSound),
             volumeKeys = prefs.getBoolean("volKeys", d.volumeKeys),
             pageAnim = prefs.getInt("pageAnim", d.pageAnim),
             swipe = prefs.getBoolean("swipe", d.swipe),
@@ -441,7 +440,7 @@ object Store {
             .putBoolean("grain", s.grain).putBoolean("mono", s.mono)
             .putFloat("wallDim", s.wallDim).putBoolean("wallReader", s.wallInReader)
             .putFloat("grainAmt", s.grainAmount).putInt("pdfMode", s.pdfMode)
-            .putBoolean("haptics", s.haptics).putInt("hapticLevel", s.hapticLevel).putBoolean("pageSound", s.pageSound).putBoolean("volKeys", s.volumeKeys).putInt("pageAnim", s.pageAnim).putBoolean("swipe", s.swipe).putBoolean("coverAuto", s.coverScreen).putInt("uiMode", s.uiMode)
+            .putBoolean("haptics", s.haptics).putInt("hapticLevel", s.hapticLevel).putBoolean("volKeys", s.volumeKeys).putInt("pageAnim", s.pageAnim).putBoolean("swipe", s.swipe).putBoolean("coverAuto", s.coverScreen).putInt("uiMode", s.uiMode)
             .putBoolean("twoPageOpen", s.twoPageUnfolded).putInt("goalMin", s.dailyGoalMin)
             .apply()
     }

@@ -490,8 +490,7 @@ private fun ReaderBody(
         fun turn(dir: Int, fromDrag: Boolean = false) {
             if (settings.swipe) {   // volume keys in swipe mode: a full curl on its own
                 val t = beginCurl(dir) ?: return
-                PageSound.play()
-                scope.launch { t.auto(); endCurl(t) }
+                    scope.launch { t.auto(); endCurl(t) }
                 return
             }
             pendingAnchor?.let { anchor = it; pendingAnchor = null }
@@ -508,7 +507,6 @@ private fun ReaderBody(
                 return
             }
             pendingAnchor = target.start
-            PageSound.play()
             if (!fromDrag) haptics.play(Haptic.PageTurn)
             if (settings.pageAnim == 1 && !fromDrag) {
                 turnJob = scope.launch {
@@ -604,7 +602,6 @@ private fun ReaderBody(
                         val fling = if (dir > 0) vx < -8f else vx > 8f
                         val backFling = if (dir > 0) vx > 8f else vx < -8f
                         val done = !backFling && (fling || t.fraction > 0.25f)
-                        if (done) PageSound.play()
                         scope.launch { t.settle(done); endRef(t) }
                     }
                 })
