@@ -158,6 +158,9 @@ object Widgets {
 
     private fun currentQuote(): Highlight? = quotes().let { if (it.isEmpty()) null else it[Store.quoteIndex.mod(it.size)] }
 
+    /** The quote the home-screen widget is showing right now, for the card in the Highlights tab. */
+    fun quoteOfTheDay(): Highlight? = currentQuote()
+
     private fun openIntent(context: Context, code: Int, fill: Intent.() -> Unit): PendingIntent {
         val i = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -198,9 +201,8 @@ object Widgets {
             v.setTextViewText(R.id.quote, h.text.trim())
             v.setTextViewText(R.id.source, listOfNotNull(book?.title, h.chapter.takeIf { it.isNotBlank() && it != book?.title }).joinToString(" · "))
             v.setInt(R.id.dot, "setColorFilter", 0xFF1C1C1E.toInt())
-            v.setOnClickPendingIntent(clickId, openIntent(context, code) {
-                putExtra(EXTRA_OPEN_BOOK, h.bookId); putExtra(EXTRA_OPEN_PARA, h.para)
-            })
+            // the widget lives in the Highlights tab too, so tapping it goes there
+            v.setOnClickPendingIntent(clickId, openIntent(context, code) { putExtra(EXTRA_OPEN_HIGHLIGHTS, true) })
         } else {
             v.setOnClickPendingIntent(clickId, openIntent(context, code) { putExtra(EXTRA_OPEN_HIGHLIGHTS, true) })
         }

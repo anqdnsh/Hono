@@ -124,11 +124,23 @@ private fun sourceLine(h: Highlight, title: String): String =
 fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExportAll: () -> Unit, onSettings: () -> Unit) {
     val all by Store.highlights.collectAsState()
     val books by Store.books.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
     var filter by remember { mutableIntStateOf(0) }
-    var exhibit by remember { mutableStateOf<Int?>(null) }
+    // the full-screen view gets its own list, so the quote of the day can open even under "Loved"
+    var exhibit by remember { mutableStateOf<Pair<List<Highlight>, Int>?>(null) }
     val titles = remember(books) { books.associate { it.id to it.title } }
-    val shown = remember(all, filter) { all.filter { filter == 0 || it.favorite }.sortedByDescending { it.createdAt } }
+    val shown = remember(all, filter) { all.filter { filter == 0 || it.favorite } }
+    // one group per book, newest-touched book first; inside a book, in reading order
+    val groups = remember(shown) {
+        shown.groupBy { it.bookId }.entries
+            .sortedByDescending { e -> e.value.maxOf { it.createdAt } }
+            .map { e -> e.key to e.value.sortedWith(compareBy({ it.para }, { it.start })) }
+    }
     val favCount = remember(all) { all.count { it.favorite } }
+    // same pick as the home-screen widget; re-read every minute so the 2-hour change shows up here too
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(60_000); tick++ } }
+    val quote = remember(all, tick) { com.aniq.glassreader.widget.Widgets.quoteOfTheDay() }
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
@@ -152,9 +164,18 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
                         if (all.isEmpty()) "Nothing saved yet" else "${all.size} saved" + if (favCount > 0) " · $favCount loved" else "",
                         color = Secondary, fontSize = 14.sp,
                     )
-                    Spacer(Modifier.height(14.dp))
-                    Segmented(listOf("All", "Loved"), filter, { filter = it }, Modifier.widthIn(max = 260.dp))
-                    Spacer(Modifier.height(4.dp))
+                }
+            }
+            if (quote != null) {
+                item(span = StaggeredGridItemSpan.FullLine, key = "today") {
+                    QuoteOfTheDay(quote, titles[quote.bookId] ?: "",
+                        onClick = { exhibit = listOf(quote) to 0 },
+                        onNext = { com.aniq.glassreader.widget.Widgets.nextQuote(context); tick++ })
+                }
+            }
+            if (all.isNotEmpty()) {
+                item(span = StaggeredGridItemSpan.FullLine, key = "filter") {
+                    Segmented(listOf("All", "Loved"), filter, { filter = it }, Modifier.padding(top = 6.dp).widthIn(max = 260.dp))
                 }
             }
             if (shown.isEmpty()) {
@@ -171,22 +192,77 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
                     }
                 }
             }
-            items(shown, key = { it.id }) { h ->
-                Frame(h, titles[h.bookId] ?: "", Modifier.animateItem()) { exhibit = shown.indexOf(h) }
+            groups.forEach { (bookId, list) ->
+                item(span = StaggeredGridItemSpan.FullLine, key = "book-$bookId") {
+                    BookHeader(bookId, titles[bookId] ?: "Removed book", list.size, Modifier.animateItem())
+                }
+                items(list, key = { it.id }) { h ->
+                    Frame(h, titles[h.bookId] ?: "", Modifier.animateItem()) { exhibit = list to list.indexOf(h) }
+                }
             }
         }
 
         // full-screen exhibit
         AnimatedVisibility(
-            visible = exhibit != null && shown.isNotEmpty(),
+            visible = exhibit != null,
             enter = fadeIn(tween(220)) + scaleIn(spring(0.85f, 420f), initialScale = 0.92f),
             exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.94f),
         ) {
-            var start by remember { mutableIntStateOf(0) }
-            exhibit?.let { start = it }
-            Exhibit(shown, start.coerceIn(0, (shown.size - 1).coerceAtLeast(0)), titles,
+            var last by remember { mutableStateOf<Pair<List<Highlight>, Int>>(emptyList<Highlight>() to 0) }
+            exhibit?.let { last = it }
+            // keep the list live so loving or deleting shows straight away
+            val ids = remember(last) { last.first.map { it.id }.toSet() }
+            val live = remember(all, ids) { all.filter { it.id in ids }.sortedBy { h -> last.first.indexOfFirst { it.id == h.id } } }
+            Exhibit(live, last.second.coerceIn(0, (live.size - 1).coerceAtLeast(0)), titles,
                 onClose = { exhibit = null },
                 onOpen = { h -> exhibit = null; onOpen(h.bookId, h.para, h.start) })
+        }
+    }
+}
+
+/** The home-screen quote widget, drawn in the app: today's quote, where it's from, and a shuffle button. */
+@Composable
+private fun QuoteOfTheDay(h: Highlight, bookTitle: String, onClick: () -> Unit, onNext: () -> Unit) {
+    val shape = RoundedCornerShape(30.dp)
+    Column(
+        Modifier.fillMaxWidth().padding(top = 8.dp).bouncyClick(pressedScale = 0.97f, onClick = onClick)
+            .liquidGlass(shape)
+            .padding(start = 22.dp, end = 14.dp, top = 20.dp, bottom = 14.dp)
+    ) {
+        Text("Quote of the day", color = Primary.copy(alpha = 0.55f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(10.dp))
+        val len = h.text.length
+        Text(
+            h.text.trim(), color = Primary,
+            fontSize = if (len < 160) 21.sp else 18.sp, lineHeight = if (len < 160) 28.sp else 25.sp,
+            fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp,
+            maxLines = 9, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 8.dp),
+        )
+        Spacer(Modifier.height(14.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(sourceLine(h, bookTitle), color = Primary.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Box(
+                Modifier.size(32.dp).clip(CircleShape).background(Primary.copy(alpha = 0.10f))
+                    .bouncyClick(pressedScale = 0.85f, onClick = onNext),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Line.Refresh, "Another quote", tint = Primary.copy(alpha = 0.85f), modifier = Modifier.size(16.dp)) }
+        }
+    }
+}
+
+/** Book title over its group of highlights, with a small cover. */
+@Composable
+private fun BookHeader(bookId: String, title: String, count: Int, modifier: Modifier) {
+    val cover = rememberCoverOf(bookId, 160)
+    Row(modifier.fillMaxWidth().padding(start = 4.dp, top = 18.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(width = 30.dp, height = 44.dp).clip(RoundedCornerShape(4.dp)).background(Primary.copy(alpha = 0.08f))) {
+            if (cover != null) Image(cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+        }
+        Column(Modifier.padding(start = 12.dp).weight(1f)) {
+            Text(title, color = Primary, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (count == 1) "1 highlight" else "$count highlights", color = Secondary, fontSize = 13.sp)
         }
     }
 }
@@ -216,7 +292,7 @@ private fun Frame(h: Highlight, bookTitle: String, modifier: Modifier, onClick: 
         Box(Modifier.fillMaxWidth().height(0.6.dp).background(Primary.copy(alpha = 0.12f)))
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(sourceLine(h, bookTitle), color = Primary.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.Medium,
+            Text(h.chapter.takeIf { it.isNotBlank() && it != bookTitle } ?: bookTitle, color = Primary.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.Medium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             if (h.favorite) Icon(Line.HeartFill, null, tint = Color(0xFFFF375F), modifier = Modifier.size(14.dp).padding(start = 2.dp))
         }

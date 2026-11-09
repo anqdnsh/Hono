@@ -59,6 +59,7 @@ object Line {
     val More by lazy {
         stroke("more", "M6,12H6.1", "M12,12H12.1", "M18,12H18.1", width = 2.6f)
     }
+    val Refresh by lazy { stroke("refresh", "M18.6,12.5A6.6,6.6 0,1 1,16.4,7.1", "M17,3.6V7.6H13") }
     val Chevron by lazy { stroke("chev", "M9.5,6L15.5,12L9.5,18", width = 2f) }
     val Paragraph by lazy { stroke("para", "M4.5,6H19.5", "M4.5,10H19.5", "M4.5,14H19.5", "M4.5,18H13") }
 }
