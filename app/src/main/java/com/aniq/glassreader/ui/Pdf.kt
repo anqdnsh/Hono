@@ -334,7 +334,6 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     }
     LaunchedEffect(page) { delay(300); Store.updateProgress(book.id, page, 0, count) }
     ReadingClock(book.id, page)
-    GoalWatcher { toast = "Daily goal reached"; haptics.play(Haptic.Confirm) }
     val loupe = rememberLoupe()
     LaunchedEffect(toast) { if (toast != null) { delay(1600); toast = null } }
 
@@ -792,6 +791,8 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                 }
             }
         }
+
+        Celebrations(theme, Modifier.align(Alignment.TopCenter).padding(top = topInset + 10.dp))
 
         AnimatedVisibility(
             visible = toast != null, enter = fadeIn() + slideInVertically(spring(0.7f, 500f)) { -it / 2 }, exit = fadeOut(),

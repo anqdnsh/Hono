@@ -346,7 +346,6 @@ private fun ReaderBody(
     }
     LaunchedEffect(anchor) { delay(400); Store.updateProgress(book.id, anchor.para, anchor.char, n, c.chapterAt(anchor.para)?.title.orEmpty()) }
     ReadingClock(book.id, anchor)
-    GoalWatcher { toast = "Daily goal reached"; haptics.play(Haptic.Confirm) }
     LaunchedEffect(toast) { if (toast != null) { delay(1600); toast = null } }
 
     // ---- styles ----
@@ -730,6 +729,9 @@ private fun ReaderBody(
                 Sheet.None -> {}
             }
         }
+
+        // ---- goal and badge popups ----
+        Celebrations(theme, Modifier.align(Alignment.TopCenter).padding(top = topInset + 10.dp))
 
         // ---- toast ----
         AnimatedVisibility(
