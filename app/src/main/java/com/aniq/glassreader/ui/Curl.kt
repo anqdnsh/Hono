@@ -71,70 +71,37 @@ fun Modifier.pageCurl(
     val re = 2 * md * n.x; val rf = 2 * md * n.y
     fun reflect(q: Offset): Offset { val s = (q.x - m.x) * n.x + (q.y - m.y) * n.y; return Offset(q.x - 2 * s * n.x, q.y - 2 * s * n.y) }
     val flap = cut.map(::reflect)
-    // As the sheet lays down flat on the other side (or back where it started) its shadows have
-    // nothing left to fall from, so fade them out over the last stretch instead of leaving a dark
-    // band on the new page until the settle spring finishes.
-    val land = Offset(2 * hinge - corner, h)
-    val fromLand = ((pt - land).getDistance() / (sheetW * 0.35f)).coerceIn(0f, 1f)
-    val fromRest = (len / (sheetW * 0.08f)).coerceIn(0f, 1f)
-    val k = min(fromLand, fromRest).let { it * it * (3 - 2 * it) }   // smoothstep
-    if (k <= 0.001f && fromLand <= 0.001f && contentBack.not()) {
-        // fully landed on a single page: nothing of this sheet is visible any more
+    if (fromNowOnLanded(pt, Offset(2 * hinge - corner, h), sheetW) && !contentBack) {
+        // landed on the other side: nothing of this sheet is visible any more
         return@drawWithContent
     }
-    val shade = (if (dark) 0.55f else 0.36f) * k
 
-    // 1. shadow the fold throws onto the page underneath
-    if (cut.size >= 3) clipPath(poly(cut)) {
-        val reach = min(70.dp.toPx(), len * 0.6f)
-        drawRect(Brush.linearGradient(listOf(Color.Black.copy(alpha = shade), Color.Transparent), m, m + n * reach),
-            topLeft = Offset(left - sheetW, 0f), size = androidx.compose.ui.geometry.Size(sheetW * 3, h))
-    }
-    // 2. the part of the page still lying flat
+    // Clean paper only: no cast shadows, no blur, no shading bands. The page underneath shows
+    // through where the sheet has lifted, the flap shows its back, and a hairline marks the fold.
+
+    // 1. the part of the page still lying flat
     if (kept.size >= 3) clipPath(poly(kept)) {
         drawRect(paper, Offset(left, 0f), androidx.compose.ui.geometry.Size(sheetW, h))
         this@drawWithContent.drawContent()
     }
     if (flap.size < 3) return@drawWithContent
     val flapPath = poly(flap)
-    // 3. soft drop shadow under the lifted flap
-    drawIntoCanvas { cv ->
-        val pnt = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = paper.copy(alpha = 1f).toArgb()
-            setShadowLayer(18.dp.toPx(), -n.x * 5.dp.toPx(), -n.y * 5.dp.toPx(), Color.Black.copy(alpha = (if (dark) 0.6f else 0.32f) * k).toArgb())
-        }
-        cv.nativeCanvas.drawPath(flapPath.asAndroidPath(), pnt)
-    }
-    // 4. the back of the sheet
+    // 2. the back of the sheet
     clipPath(flapPath) {
-        val back = if (dark) lerp(paper, Color.White, 0.06f) else lerp(paper, Color.Black, 0.035f)
+        val back = if (dark) lerp(paper, Color.White, 0.05f) else lerp(paper, Color.Black, 0.025f)
         drawRect(back, Offset(-size.width, 0f), androidx.compose.ui.geometry.Size(size.width * 3, h))
         if (contentBack) {
             // the next page, printed on the reverse: mirror across the spine, then fold
             val e2 = re + 2 * hinge * ra; val f2 = rf + 2 * hinge * rb
             withTransform({ transform(affine(-ra, -rb, rb, rd, e2, f2)) }) { this@drawWithContent.drawContent() }
-        } else {
-            withTransform({ transform(affine(ra, rb, rb, rd, re, rf)) }) {
-                drawIntoCanvas { cv ->
-                    cv.saveLayer(Rect(-size.width * 2, -h, size.width * 3, h * 2), Paint().apply { alpha = 0.11f })
-                    this@drawWithContent.drawContent()
-                    cv.restore()
-                }
-            }
         }
-        // curvature: darker in the crease, a highlight across the bend, falling off to the edge
-        val depth = min(len, 150.dp.toPx())
-        drawRect(
-            Brush.linearGradient(
-                0f to Color.Black.copy(alpha = shade * 0.55f), 0.12f to Color.Black.copy(alpha = 0.05f * k),
-                0.35f to Color.White.copy(alpha = (if (dark) 0.08f else 0.30f) * k), 0.75f to Color.White.copy(alpha = 0.04f * k),
-                1f to Color.Black.copy(alpha = 0.10f * k),
-                start = m, end = m - n * depth,
-            ),
-            topLeft = Offset(-size.width, 0f), size = androidx.compose.ui.geometry.Size(size.width * 3, h),
-        )
     }
+    // 3. a hairline round the flap so its edge reads against the page beneath
+    drawPath(flapPath, (if (dark) Color.White else Color.Black).copy(alpha = 0.10f),
+        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 0.75.dp.toPx()))
 }
+
+private fun fromNowOnLanded(pt: Offset, land: Offset, sheetW: Float) = (pt - land).getDistance() < sheetW * 0.002f
 
 private fun lerp(a: Color, b: Color, t: Float) = Color(a.red + (b.red - a.red) * t, a.green + (b.green - a.green) * t, a.blue + (b.blue - a.blue) * t, 1f)
 
@@ -178,7 +145,7 @@ class CurlTurn(val dir: Int, val start: Offset, val end: Offset) {
 
     suspend fun settle(complete: Boolean) {
         completing = complete
-        p.animateTo(if (complete) end else start, spring(dampingRatio = 0.92f, stiffness = 260f))
+        p.animateTo(if (complete) end else start, spring(dampingRatio = 1f, stiffness = 420f))
     }
 
     /** A whole turn on its own (volume keys): the corner lifts, arcs over and lays down. */
