@@ -437,6 +437,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             if (p !in 0 until count) return null
             return Triple(p, Offset(pos.x - slot * slotW - padPxC, pos.y - topPxC), alignOf(slot))
         }
+        val extraEnd = if (spread) maxWidth / 2 else 0.dp
         var regionPage by remember { mutableIntStateOf(0) }
         var regionAlign by remember { mutableFloatStateOf(0f) }
         var rootOff by remember { mutableStateOf(Offset.Zero) }
@@ -569,7 +570,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                     Modifier
                         .fillMaxSize()
                         .graphicsLayer { translationX = offset.value + dlt * fullW + slot * slotW; alpha = if (dlt == 0) fade.value else 1f }
-                        .padding(top = pageTop, bottom = pageBottom, start = sidePad, end = sidePad + if (spread) maxWidth / 2 else 0.dp)
+                        .padding(top = pageTop, bottom = pageBottom, start = sidePad, end = sidePad + extraEnd)
                         .drawBehind {
                             val cr = rd.crop
                             val r = fitRect(size, cr.width(), cr.height(), align)
