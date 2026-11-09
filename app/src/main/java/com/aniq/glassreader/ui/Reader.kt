@@ -517,39 +517,6 @@ private fun ReaderBody(
                         onLongPress = { /* long-press on text = highlight (handled by the paragraph) */ },
                     )
                 }
-                .pointerInput(fullW) {
-                    val tracker = VelocityTracker()
-                    var armed = false
-                    detectHorizontalDragGestures(
-                        onDragStart = {
-                            tracker.resetTracking(); armed = false
-                            pendingAnchor?.let { anchor = it; pendingAnchor = null }
-                            turnJob?.cancel()
-                            selection = null; active = null; chrome = false
-                        },
-                        onDragEnd = {
-                            val v = tracker.calculateVelocity().x
-                            val o = offset.value
-                            val dir = when {
-                                o < -fullW * 0.22f || v < -900f -> 1
-                                o > fullW * 0.22f || v > 900f -> -1
-                                else -> 0
-                            }
-                            if (dir != 0 && neighbourRef(dir) != null) turnRef(dir, true)
-                            else turnJob = scope.launch { offset.animateTo(0f, spring(0.8f, 500f)) }
-                        },
-                        onDragCancel = { turnJob = scope.launch { offset.animateTo(0f, spring(0.8f, 500f)) } },
-                    ) { change, dx ->
-                        change.consume()
-                        tracker.addPosition(change.uptimeMillis, change.position)
-                        val o = offset.value
-                        val blocked = (o + dx < 0 && neighbourRef(1) == null) || (o + dx > 0 && neighbourRef(-1) == null)
-                        val nextO = o + if (blocked) dx * 0.25f else dx
-                        val past = !blocked && abs(nextO) > fullW * 0.22f
-                        if (past != armed) { armed = past; if (past) haptics.play(Haptic.Threshold) }
-                        scope.launch { offset.snapTo(nextO) }
-                    }
-                },
         ) {
             for (d in listOf(-1, 1, 0)) for (slot in 0 until step) {
                 val page = (if (spread) pageAt(d * 2 + slot) else neighbour(d)) ?: continue

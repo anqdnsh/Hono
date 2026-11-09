@@ -478,34 +478,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                         onLongPress = { },
                     )
                 }
-                .pointerInput(fullW, spread) {
-                    val tracker = VelocityTracker()
-                    var armed = false
-                    detectHorizontalDragGestures(
-                        onDragStart = {
-                            tracker.resetTracking(); armed = false
-                            pending?.let { page = it; pending = null }
-                            turnJob?.cancel(); region = null; active = null; chrome = false
-                        },
-                        onDragEnd = {
-                            val v = tracker.calculateVelocity().x
-                            val o = offset.value
-                            val dir = when { o < -fullW * 0.22f || v < -900f -> 1; o > fullW * 0.22f || v > 900f -> -1; else -> 0 }
-                            if (dir != 0 && page + dir * step in 0 until count) turnRef(dir, true)
-                            else turnJob = scope.launch { offset.animateTo(0f, spring(0.8f, 500f)) }
-                        },
-                        onDragCancel = { turnJob = scope.launch { offset.animateTo(0f, spring(0.8f, 500f)) } },
-                    ) { change, dx ->
-                        change.consume()
-                        tracker.addPosition(change.uptimeMillis, change.position)
-                        val o = offset.value
-                        val blocked = (o + dx < 0 && page + step >= count) || (o + dx > 0 && page - 1 < 0)
-                        val nextO = o + if (blocked) dx * 0.25f else dx
-                        val past = !blocked && abs(nextO) > fullW * 0.22f
-                        if (past != armed) { armed = past; if (past) haptics.play(Haptic.Threshold) }
-                        scope.launch { offset.snapTo(nextO) }
-                    }
-                }
+                // page turns are tap-only: no swipe to turn
                 .pointerInput(fullW, spread) {
                     // hold, then drag to select text (or frame a region on scanned pages)
                     var start = Offset.Zero
