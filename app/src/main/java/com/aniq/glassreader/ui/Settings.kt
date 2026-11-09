@@ -107,8 +107,17 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
                     Pad { ToggleRow("Justify text", "Even edges on both sides", s.justify, UiTheme) { v -> set { it.copy(justify = v) } } }
                     Line()
                     Pad {
-                        Label("Page turn")
-                        Segmented(listOf("Slide", "Fade"), s.pageAnim, { i -> set { it.copy(pageAnim = i) } })
+                        Label("Turning pages")
+                        Segmented(listOf("Tap", "Swipe"), if (s.swipe) 1 else 0, { i -> set { it.copy(swipe = i == 1) } })
+                        Text(
+                            if (s.swipe) "Drag the page like paper. Swipe left for next, right to go back."
+                            else "Tap the right edge for next, the left edge to go back.",
+                            color = Secondary, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp),
+                        )
+                        if (!s.swipe) {
+                            Spacer(Modifier.height(10.dp))
+                            Segmented(listOf("Slide", "Fade"), s.pageAnim, { i -> set { it.copy(pageAnim = i) } })
+                        }
                         Spacer(Modifier.height(6.dp))
                     }
                     Line()

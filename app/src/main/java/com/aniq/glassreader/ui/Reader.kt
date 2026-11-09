@@ -44,6 +44,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.padding
@@ -455,7 +458,39 @@ private fun ReaderBody(
             return false
         }
 
+        // ---- swipe mode: paper curl ----
+        var curl by remember { mutableStateOf<CurlTurn?>(null) }
+        var curlTarget by remember { mutableStateOf<Anchor?>(null) }
+        val fullH = constraints.maxHeight.toFloat()
+        val halfW = fullW / 2f
+        /** Starts a turn if there's a page that way; null if not (or one is already moving). */
+        fun beginCurl(dir: Int): CurlTurn? {
+            if (curl != null) return null
+            val target = neighbour(dir)
+            if (target == null || (spread && dir < 0 && pageAt(-2) == null)) { haptics.play(Haptic.Reject); return null }
+            clearTransient(); chrome = false
+            val t = when {
+                !spread && dir > 0 -> CurlTurn(1, Offset(fullW, fullH), Offset(-fullW, fullH))
+                !spread -> CurlTurn(-1, Offset(-fullW, fullH), Offset(fullW, fullH))
+                dir > 0 -> CurlTurn(1, Offset(halfW, fullH), Offset(-halfW, fullH))
+                else -> CurlTurn(-1, Offset(0f, fullH), Offset(fullW, fullH))
+            }
+            curlTarget = target.start; curl = t
+            return t
+        }
+        fun endCurl(t: CurlTurn) {
+            if (t.completing) { curlTarget?.let { anchor = it }; haptics.play(Haptic.PageTurn) }
+            curl = null; curlTarget = null
+        }
+        val beginRef by rememberUpdatedState<(Int) -> CurlTurn?>({ beginCurl(it) })
+        val endRef by rememberUpdatedState<(CurlTurn) -> Unit>({ endCurl(it) })
+
         fun turn(dir: Int, fromDrag: Boolean = false) {
+            if (settings.swipe) {   // volume keys in swipe mode: a full curl on its own
+                val t = beginCurl(dir) ?: return
+                scope.launch { t.auto(); endCurl(t) }
+                return
+            }
             pendingAnchor?.let { anchor = it; pendingAnchor = null }
             turnJob?.cancel()
             scope.launch { fade.snapTo(1f) }
@@ -537,6 +572,7 @@ private fun ReaderBody(
                             when {
                                 clearTransient() -> {}
                                 chrome -> chrome = false
+                                settings.swipe && (pos.x < size.width * 0.3f || pos.x > size.width * 0.7f) -> {}   // swipe mode: no tap turns
                                 pos.x < size.width * 0.3f -> turnRef(-1, false)
                                 pos.x > size.width * 0.7f -> turnRef(1, false)
                                 else -> { chrome = true; haptics.play(Haptic.Tick) }
@@ -545,8 +581,70 @@ private fun ReaderBody(
                         onLongPress = { /* long-press on text = highlight (handled by the paragraph) */ },
                     )
                 }
+                .then(if (!settings.swipe) Modifier else Modifier.pointerInput(fullW, spread) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val start = down.position
+                        val slop = androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation(down.id) { ch, _ -> ch.consume() }
+                            ?: return@awaitEachGesture
+                        val dir = if (slop.position.x < start.x) 1 else -1
+                        val t = beginRef(dir) ?: return@awaitEachGesture
+                        var last = slop.position.x; var vx = 0f
+                        androidx.compose.foundation.gestures.horizontalDrag(slop.id) { ch ->
+                            val dx = ch.position.x - start.x; val dy = ch.position.y - start.y
+                            val lift = max(0f, -dy) * 0.35f + abs(dx) * 0.10f
+                            scope.launch { t.follow(dx, lift) }
+                            vx = ch.position.x - last; last = ch.position.x
+                            ch.consume()
+                        }
+                        val fling = if (dir > 0) vx < -8f else vx > 8f
+                        val backFling = if (dir > 0) vx > 8f else vx < -8f
+                        scope.launch { t.settle(!backFling && (fling || t.fraction > 0.25f)); endRef(t) }
+                    }
+                })
         ) {
-            for (d in listOf(-1, 1, 0)) for (slot in 0 until step) {
+            val ct = curl
+            @Composable
+            fun Sheet(page: Page?, modifier: Modifier) {
+                Box(modifier) {
+                    if (page != null) PageView(
+                        page = page, paginator = paginator, c = c, highlights = byPara, selection = null, theme = theme,
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = topReserve).width(contentWdp),
+                        onTapHighlight = {}, onSelect = { _, _ -> },
+                    )
+                }
+            }
+            val paper = theme.bg.copy(alpha = 1f)
+            val halfDp = maxWidth / 2
+            if (ct != null) {
+                val pv = { ct.p.value }
+                when {
+                    !spread && ct.dir > 0 -> {
+                        Sheet(pageAt(1), Modifier.fillMaxSize())
+                        Sheet(pageAt(0), Modifier.fillMaxSize().pageCurl(pv, 0f, fullW, paper, !theme.light, false))
+                    }
+                    !spread -> {
+                        Sheet(pageAt(0), Modifier.fillMaxSize())
+                        Sheet(pageAt(-1), Modifier.fillMaxSize().pageCurl(pv, 0f, fullW, paper, !theme.light, false))
+                    }
+                    ct.dir > 0 -> {
+                        Sheet(pageAt(0), Modifier.width(halfDp).fillMaxSize())
+                        Sheet(pageAt(3), Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight())
+                        Box(Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight().pageCurl(pv, 0f, halfW, paper, !theme.light, true)) {
+                            Sheet(pageAt(1), Modifier.fillMaxSize())
+                            Sheet(pageAt(2), Modifier.offset(x = -halfDp).width(halfDp).fillMaxHeight())
+                        }
+                    }
+                    else -> {
+                        Sheet(pageAt(1), Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight())
+                        Sheet(pageAt(-2), Modifier.width(halfDp).fillMaxHeight())
+                        Box(Modifier.width(halfDp).fillMaxHeight().pageCurl(pv, halfW, 0f, paper, !theme.light, true)) {
+                            Sheet(pageAt(0), Modifier.fillMaxSize())
+                            Sheet(pageAt(-1), Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight())
+                        }
+                    }
+                }
+            } else for (d in listOf(-1, 1, 0)) for (slot in 0 until step) {
                 val page = (if (spread) pageAt(d * 2 + slot) else neighbour(d)) ?: continue
                 val shift = if (!spread) 0f else if (slot == 0) -fullW / 4f else fullW / 4f
                 key(page.start) { PageView(

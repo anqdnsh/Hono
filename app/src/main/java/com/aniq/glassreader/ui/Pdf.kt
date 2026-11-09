@@ -56,6 +56,10 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -383,6 +387,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         val fade = remember { Animatable(1f) }
         var turnJob by remember { mutableStateOf<Job?>(null) }
         var pending by remember { mutableStateOf<Int?>(null) }
+        var swipeTurn: (Int) -> Unit = {}
 
         fun clearTransient(): Boolean {
             if (region != null || tsel != null || active != null || sheet != 0) { region = null; tsel = null; active = null; sheet = 0; return true }
@@ -400,6 +405,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         }
 
         fun turn(dir: Int, fromDrag: Boolean = false) {
+            if (settings.swipe) { swipeTurn(dir); return }   // volume keys in swipe mode: a full curl on its own
             pending?.let { page = it; pending = null }
             turnJob?.cancel()
             scope.launch { fade.snapTo(1f) }
@@ -458,12 +464,96 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         var regionAlign by remember { mutableFloatStateOf(0f) }
         var rootOff by remember { mutableStateOf(Offset.Zero) }
 
+        /** Draws page [p] (bitmap, highlights, and — if [live] — the selection) fitted into this box. */
+        fun androidx.compose.ui.graphics.drawscope.DrawScope.paintPage(p: Int, align: Float, live: Boolean) {
+            val rd = bitmaps[p] ?: return
+            val img = rd.bmp.asImageBitmap()
+            val cr = rd.crop
+            val r = fitRect(size, cr.width(), cr.height(), align)
+            drawImage(
+                img,
+                srcOffset = IntOffset(cr.left, cr.top),
+                srcSize = IntSize(cr.width(), cr.height()),
+                dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
+                dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
+                colorFilter = filter,
+            )
+            fun boxes(q: FloatArray, color: Color, framed: Boolean) {
+                var i = 0
+                while (i + 3 < q.size) {
+                    val a = fromPage(rd, r, q[i], q[i + 1]); val b = fromPage(rd, r, q[i + 2], q[i + 3])
+                    val sz = Size(b.x - a.x, b.y - a.y)
+                    if (framed) {
+                        drawRoundRect(color.copy(alpha = 0.16f), a, sz, CornerRadius(14f))
+                        drawRoundRect(color.copy(alpha = 0.9f), a, sz, CornerRadius(14f), style = Stroke(3f))
+                    } else {
+                        drawRoundRect(color.copy(alpha = if (theme.light) 0.38f else 0.32f), a, sz, CornerRadius(6f),
+                            blendMode = if (theme.light && settings.pdfMode != 2) BlendMode.Multiply else BlendMode.SrcOver)
+                    }
+                    i += 4
+                }
+            }
+            for (h in clips) if (h.para == p) boxes(h.rect!!, HighlightColors[h.color.coerceIn(0, HighlightColors.lastIndex)], h.isClip)
+            if (live) tsel?.takeIf { it.page == p }?.let { boxes(it.rects, theme.accent.copy(alpha = 0.7f), false) }
+            if (live && p == regionPage) region?.let { rg ->
+                drawRoundRect(theme.accent.copy(alpha = 0.12f), rg.topLeft, rg.size, CornerRadius(16f))
+                drawRoundRect(theme.accent.copy(alpha = 0.85f), rg.topLeft, rg.size, CornerRadius(16f), style = Stroke(3f))
+            }
+        }
+
+        // ---- swipe mode: paper curl ----
+        var curl by remember { mutableStateOf<CurlTurn?>(null) }
+        var curlTarget by remember { mutableIntStateOf(-1) }
+        val fullH = constraints.maxHeight.toFloat()
+        fun beginCurl(dir: Int): CurlTurn? {
+            if (curl != null) return null
+            val target = page + dir * step
+            if (target !in 0 until count || (spread && dir < 0 && page - 2 < 0)) { haptics.play(Haptic.Reject); return null }
+            clearTransient(); chrome = false
+            val t = when {
+                !spread && dir > 0 -> CurlTurn(1, Offset(fullW, fullH), Offset(-fullW, fullH))
+                !spread -> CurlTurn(-1, Offset(-fullW, fullH), Offset(fullW, fullH))
+                dir > 0 -> CurlTurn(1, Offset(slotW, fullH), Offset(-slotW, fullH))
+                else -> CurlTurn(-1, Offset(0f, fullH), Offset(fullW, fullH))
+            }
+            curlTarget = target; curl = t
+            return t
+        }
+        fun endCurl(t: CurlTurn) {
+            if (t.completing && curlTarget >= 0) { page = curlTarget; haptics.play(Haptic.PageTurn) }
+            curl = null; curlTarget = -1
+        }
+        val beginRef by rememberUpdatedState<(Int) -> CurlTurn?>({ beginCurl(it) })
+        val endRef by rememberUpdatedState<(CurlTurn) -> Unit>({ endCurl(it) })
+        swipeTurn = { d -> beginCurl(d)?.let { t -> scope.launch { t.auto(); endCurl(t) } } }
+
         Box(
             Modifier
                 .fillMaxSize()
                 .blockEdgeSwipes()
                 .onRootPosition { rootOff = it }
                 .hazeSource(haze)
+                .then(if (!settings.swipe) Modifier else Modifier.pointerInput(fullW, spread) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val start = down.position
+                        val slop = androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation(down.id) { ch, _ -> ch.consume() }
+                            ?: return@awaitEachGesture
+                        val dir = if (slop.position.x < start.x) 1 else -1
+                        val t = beginRef(dir) ?: return@awaitEachGesture
+                        var last = slop.position.x; var vx = 0f
+                        androidx.compose.foundation.gestures.horizontalDrag(slop.id) { ch ->
+                            val dx = ch.position.x - start.x; val dy = ch.position.y - start.y
+                            val lift = max(0f, -dy) * 0.35f + kotlin.math.abs(dx) * 0.10f
+                            scope.launch { t.follow(dx, lift) }
+                            vx = ch.position.x - last; last = ch.position.x
+                            ch.consume()
+                        }
+                        val fling = if (dir > 0) vx < -8f else vx > 8f
+                        val backFling = if (dir > 0) vx > 8f else vx < -8f
+                        scope.launch { t.settle(!backFling && (fling || t.fraction > 0.25f)); endRef(t) }
+                    }
+                })
                 .pointerInput(fullW, spread) {
                     detectTapGestures(
                         onTap = { pos ->
@@ -486,6 +576,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                                 clearTransient() -> {}
                                 hit != null -> { active = hit; haptics.play(Haptic.Tick) }
                                 chrome -> chrome = false
+                                settings.swipe && (pos.x < size.width * 0.3f || pos.x > size.width * 0.7f) -> {}   // swipe mode: no tap turns
                                 pos.x < size.width * 0.3f -> turnRef(-1, false)
                                 pos.x > size.width * 0.7f -> turnRef(1, false)
                                 else -> { chrome = true; haptics.play(Haptic.Tick) }
@@ -546,53 +637,57 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                     )
                 },
         ) {
-            for (dlt in listOf(-1, 1, 0)) {
+            val ct = curl
+            @Composable
+            fun PdfSheet(p: Int, align: Float, modifier: Modifier) {
+                Box(modifier) {
+                    Box(Modifier.fillMaxSize().padding(top = pageTop, bottom = pageBottom, start = sidePad, end = sidePad)
+                        .drawBehind { if (p in 0 until count) paintPage(p, align, false) })
+                }
+            }
+            val paper = theme.bg.copy(alpha = 1f)
+            val halfDp = maxWidth / 2
+            if (ct != null) {
+                val pv = { ct.p.value }
+                when {
+                    !spread && ct.dir > 0 -> {
+                        PdfSheet(page + 1, 0f, Modifier.fillMaxSize())
+                        PdfSheet(page, 0f, Modifier.fillMaxSize().pageCurl(pv, 0f, fullW, paper, !theme.light, false))
+                    }
+                    !spread -> {
+                        PdfSheet(page, 0f, Modifier.fillMaxSize())
+                        PdfSheet(page - 1, 0f, Modifier.fillMaxSize().pageCurl(pv, 0f, fullW, paper, !theme.light, false))
+                    }
+                    ct.dir > 0 -> {
+                        PdfSheet(page, 1f, Modifier.width(halfDp).fillMaxHeight())
+                        PdfSheet(page + 3, -1f, Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight())
+                        Box(Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight().pageCurl(pv, 0f, slotW, paper, !theme.light, true)) {
+                            PdfSheet(page + 1, -1f, Modifier.fillMaxSize())
+                            PdfSheet(page + 2, 1f, Modifier.offset(x = -halfDp).width(halfDp).fillMaxHeight())
+                        }
+                    }
+                    else -> {
+                        PdfSheet(page + 1, -1f, Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight())
+                        PdfSheet(page - 2, 1f, Modifier.width(halfDp).fillMaxHeight())
+                        Box(Modifier.width(halfDp).fillMaxHeight().pageCurl(pv, slotW, 0f, paper, !theme.light, true)) {
+                            PdfSheet(page, 1f, Modifier.fillMaxSize())
+                            PdfSheet(page - 1, -1f, Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight())
+                        }
+                    }
+                }
+            } else for (dlt in listOf(-1, 1, 0)) {
                 for (slot in 0 until step) {
                 val p = page + dlt * step + slot
                 if (p !in 0 until count) continue
-                val rd = bitmaps[p] ?: continue
+                if (bitmaps[p] == null) continue
                 val align = alignOf(slot)
                 key(p) {
-                val img = remember(rd) { rd.bmp.asImageBitmap() }
-                val pageClips = clips.filter { it.para == p }
                 Box(
                     Modifier
                         .fillMaxSize()
                         .graphicsLayer { translationX = offset.value + dlt * fullW + slot * slotW; alpha = if (dlt == 0) fade.value else 1f }
                         .padding(top = pageTop, bottom = pageBottom, start = sidePad, end = sidePad + extraEnd)
-                        .drawBehind {
-                            val cr = rd.crop
-                            val r = fitRect(size, cr.width(), cr.height(), align)
-                            drawImage(
-                                img,
-                                srcOffset = IntOffset(cr.left, cr.top),
-                                srcSize = IntSize(cr.width(), cr.height()),
-                                dstOffset = IntOffset(r.left.roundToInt(), r.top.roundToInt()),
-                                dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
-                                colorFilter = filter,
-                            )
-                            fun boxes(q: FloatArray, color: Color, framed: Boolean) {
-                                var i = 0
-                                while (i + 3 < q.size) {
-                                    val a = fromPage(rd, r, q[i], q[i + 1]); val b = fromPage(rd, r, q[i + 2], q[i + 3])
-                                    val sz = Size(b.x - a.x, b.y - a.y)
-                                    if (framed) {
-                                        drawRoundRect(color.copy(alpha = 0.16f), a, sz, CornerRadius(14f))
-                                        drawRoundRect(color.copy(alpha = 0.9f), a, sz, CornerRadius(14f), style = Stroke(3f))
-                                    } else {
-                                        drawRoundRect(color.copy(alpha = if (theme.light) 0.38f else 0.32f), a, sz, CornerRadius(6f),
-                                            blendMode = if (theme.light && settings.pdfMode != 2) BlendMode.Multiply else BlendMode.SrcOver)
-                                    }
-                                    i += 4
-                                }
-                            }
-                            for (h in pageClips) boxes(h.rect!!, HighlightColors[h.color.coerceIn(0, HighlightColors.lastIndex)], h.isClip)
-                            if (dlt == 0) tsel?.takeIf { it.page == p }?.let { boxes(it.rects, theme.accent.copy(alpha = 0.7f), false) }
-                            if (dlt == 0 && p == regionPage) region?.let { rg ->
-                                drawRoundRect(theme.accent.copy(alpha = 0.12f), rg.topLeft, rg.size, CornerRadius(16f))
-                                drawRoundRect(theme.accent.copy(alpha = 0.85f), rg.topLeft, rg.size, CornerRadius(16f), style = Stroke(3f))
-                            }
-                        },
+                        .drawBehind { paintPage(p, align, dlt == 0) },
                 )
                 }
                 }

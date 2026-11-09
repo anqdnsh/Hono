@@ -135,7 +135,8 @@ data class ReaderSettings(
     val haptics: Boolean = true,
     val hapticLevel: Int = 2,    // 0 light, 1 medium, 2 strong
     val volumeKeys: Boolean = true,
-    val pageAnim: Int = 0,       // 0 slide, 1 fade
+    val pageAnim: Int = 0,       // 0 slide, 1 fade (tap mode)
+    val swipe: Boolean = false,  // false: tap the edges to turn; true: swipe pages with a paper curl
     val coverScreen: Boolean = true, // cover on the outer screen while reading two pages sideways
     val uiMode: Int = 0,         // 0 system, 1 light, 2 dark
     val twoPageUnfolded: Boolean = true, // two pages on the open Fold even when held upright
