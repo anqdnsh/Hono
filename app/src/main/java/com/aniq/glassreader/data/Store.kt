@@ -244,11 +244,12 @@ object Store {
         scheduleSave()
     }
 
-    fun updateProgress(id: String, index: Int, offset: Int, total: Int) {
+    fun updateProgress(id: String, index: Int, offset: Int, total: Int, chapter: String? = null) {
         val cur = book(id) ?: return
-        if (cur.progressIndex == index && cur.progressOffset == offset && cur.totalParas == total) return
+        val ch = chapter ?: cur.chapter
+        if (cur.progressIndex == index && cur.progressOffset == offset && cur.totalParas == total && cur.chapter == ch) return
         _books.value = _books.value.map {
-            if (it.id == id) it.copy(progressIndex = index, progressOffset = offset, totalParas = total) else it
+            if (it.id == id) it.copy(progressIndex = index, progressOffset = offset, totalParas = total, chapter = ch) else it
         }
         scheduleSave()
     }

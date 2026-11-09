@@ -15,6 +15,7 @@ data class Book(
     val addedAt: Long = System.currentTimeMillis(),
     val lastOpened: Long = 0L,
     val readMs: Long = 0L,       // time spent reading this book
+    val chapter: String = "",    // title of the chapter the reader is in, for widgets
 ) {
     val isPdf get() = format == "pdf"
     val progress: Float
@@ -24,7 +25,7 @@ data class Book(
         put("id", id); put("title", title); put("author", author); put("format", format)
         put("hasCover", hasCover); put("pi", progressIndex); put("po", progressOffset)
         put("tp", totalParas); put("added", addedAt); put("opened", lastOpened)
-        put("readMs", readMs)
+        put("readMs", readMs); put("ch", chapter)
     }
 
     companion object {
@@ -40,6 +41,7 @@ data class Book(
             addedAt = o.optLong("added", 0L),
             lastOpened = o.optLong("opened", 0L),
             readMs = o.optLong("readMs", 0L),
+            chapter = o.optString("ch", ""),
         )
     }
 }

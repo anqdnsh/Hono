@@ -336,10 +336,10 @@ private fun ReaderBody(
             com.aniq.glassreader.CoverDisplay.openBook.value = null
             view.keepScreenOn = false
             controller?.show(WindowInsetsCompat.Type.systemBars())
-            Store.updateProgress(book.id, anchorNow.para, anchorNow.char, n)
+            Store.updateProgress(book.id, anchorNow.para, anchorNow.char, n, c.chapterAt(anchorNow.para)?.title.orEmpty())
         }
     }
-    LaunchedEffect(anchor) { delay(400); Store.updateProgress(book.id, anchor.para, anchor.char, n) }
+    LaunchedEffect(anchor) { delay(400); Store.updateProgress(book.id, anchor.para, anchor.char, n, c.chapterAt(anchor.para)?.title.orEmpty()) }
     ReadingClock(book.id, anchor)
     LaunchedEffect(toast) { if (toast != null) { delay(1600); toast = null } }
 

@@ -88,10 +88,27 @@ object Widgets {
             v.setTextViewText(R.id.percent, "${(book.progress * 100).toInt()}%")
             val cover = Store.cover(book.id, 420)
             if (cover != null) v.setImageViewBitmap(R.id.cover, bookObject(cover)) else v.setImageViewResource(R.id.cover, R.mipmap.ic_launcher)
+            v.setTextViewText(R.id.title, book.title)
+            val where = when {
+                book.isPdf && book.totalParas > 0 -> "Page ${book.progressIndex + 1} of ${book.totalParas}"
+                book.chapter.isNotBlank() && book.chapter != book.title -> book.chapter
+                else -> book.author
+            }
+            v.setTextViewText(R.id.chapter, where)
+            v.setViewVisibility(R.id.chapter, if (where.isBlank()) android.view.View.GONE else android.view.View.VISIBLE)
+            v.setTextViewText(R.id.continueBtn, if (book.lastOpened > 0) "Continue" else "Start")
             v.setContentDescription(R.id.root, "Continue ${book.title}")
-            v.setOnClickPendingIntent(R.id.root, openIntent(context, 8) { putExtra(EXTRA_OPEN_BOOK, book.id) })
+            val open = openIntent(context, 8) { putExtra(EXTRA_OPEN_BOOK, book.id) }
+            v.setOnClickPendingIntent(R.id.root, open)
+            v.setOnClickPendingIntent(R.id.continueBtn, open)
         } else {
-            v.setOnClickPendingIntent(R.id.root, openIntent(context, 8) {})
+            v.setTextViewText(R.id.title, "Add your first book")
+            v.setTextViewText(R.id.chapter, "")
+            v.setViewVisibility(R.id.chapter, android.view.View.GONE)
+            v.setTextViewText(R.id.continueBtn, "Open Hono")
+            val open = openIntent(context, 8) {}
+            v.setOnClickPendingIntent(R.id.root, open)
+            v.setOnClickPendingIntent(R.id.continueBtn, open)
         }
         v.setTextViewText(R.id.hours, "${formatReadTime(Store.totalReadMs.value)} read")
         ids.forEach { m.updateAppWidget(it, v) }

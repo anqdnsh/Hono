@@ -1,13 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Book widget: big cover on the left, title + chapter + Continue pill on the right, progress along the bottom. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root" android:layout_width="match_parent" android:layout_height="match_parent"
-    android:background="@drawable/widget_glass" android:gravity="center_horizontal"
-    android:orientation="vertical" android:padding="14dp">
-    <ImageView android:id="@+id/cover" android:layout_width="match_parent" android:layout_height="0dp"
-        android:layout_weight="1" android:scaleType="fitCenter"
-        android:src="@mipmap/ic_launcher" />
+    android:background="@drawable/widget_glass" android:orientation="vertical" android:padding="14dp">
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:orientation="horizontal">
+        <!-- the cover bitmap carries its own glow/shadow padding, so pull it out a little to keep it big -->
+        <ImageView android:id="@+id/cover" android:layout_width="wrap_content" android:layout_height="match_parent"
+            android:layout_marginStart="-10dp" android:layout_marginTop="-10dp" android:layout_marginBottom="-6dp"
+            android:adjustViewBounds="true" android:maxWidth="150dp" android:scaleType="fitStart"
+            android:src="@mipmap/ic_launcher" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+            android:layout_marginStart="2dp" android:orientation="vertical">
+            <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:ellipsize="end" android:maxLines="3" android:text="Add a book"
+                android:textColor="#FFF5F5F7" android:textSize="14sp" android:lineSpacingMultiplier="1.05"
+                android:fontFamily="@font/inter_semibold" />
+            <TextView android:id="@+id/chapter" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="2dp" android:ellipsize="end" android:maxLines="2"
+                android:textColor="#A6FFFFFF" android:textSize="11sp" android:fontFamily="@font/inter_regular" />
+            <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+            <TextView android:id="@+id/continueBtn" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:background="@drawable/widget_pill" android:paddingStart="12dp" android:paddingEnd="12dp"
+                android:paddingTop="5dp" android:paddingBottom="5dp" android:text="Continue"
+                android:textColor="#FF1C1C1E" android:textSize="12sp" android:fontFamily="@font/inter_semibold" />
+        </LinearLayout>
+    </LinearLayout>
+
     <ProgressBar android:id="@+id/progress" style="@android:style/Widget.ProgressBar.Horizontal"
-        android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="12dp"
+        android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="10dp"
         android:max="1000" android:progress="0" android:progressDrawable="@drawable/widget_progress" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginTop="7dp" android:gravity="center_vertical" android:orientation="horizontal">
