@@ -158,10 +158,11 @@ private class PdfDoc(file: java.io.File) : Closeable {
         renderer.openPage(index).use { p ->
             val pw = p.width.toFloat(); val ph = p.height.toFloat()
             fun pt(o: Offset) = android.graphics.Point((o.x * pw).roundToInt(), (o.y * ph).roundToInt())
-            val sel = p.selectContent(
+            val raw = p.selectContent(
                 android.graphics.pdf.models.selection.SelectionBoundary(pt(a)),
                 android.graphics.pdf.models.selection.SelectionBoundary(pt(b)),
             ) ?: return null
+            val sel = runCatching { wholeWords(p, raw) }.getOrNull() ?: raw
             val parts = sel.selectedTextContents
             val text = parts.joinToString(" ") { it.text }.replace(Regex("\\s+"), " ").trim()
             if (text.isEmpty()) return null
@@ -170,6 +171,48 @@ private class PdfDoc(file: java.io.File) : Closeable {
             boxes.forEachIndexed { i, r -> arr[i * 4] = r.left / pw; arr[i * 4 + 1] = r.top / ph; arr[i * 4 + 2] = r.right / pw; arr[i * 4 + 3] = r.bottom / ph }
             return TextSel(index, text, arr)
         }
+    }
+
+    /**
+     * Widens a selection so it never starts or ends partway through a word: the press lands on
+     * whichever letter is under the finger, so walk the start back to the word's first letter
+     * and the end on to its last. Works on character indices; returns null if the renderer
+     * doesn't report them, and the caller keeps the original selection.
+     */
+    @androidx.annotation.RequiresApi(35)
+    private fun wholeWords(
+        p: PdfRenderer.Page,
+        sel: android.graphics.pdf.models.selection.PageSelection,
+    ): android.graphics.pdf.models.selection.PageSelection? {
+        val i0 = sel.start.index; val j0 = sel.stop.index
+        if (i0 < 0 || j0 < 0) return null
+        fun text(x: Int, y: Int): String = p.selectContent(
+            android.graphics.pdf.models.selection.SelectionBoundary(minOf(x, y)),
+            android.graphics.pdf.models.selection.SelectionBoundary(maxOf(x, y)),
+        )?.selectedTextContents?.joinToString("") { it.text }.orEmpty()
+        fun word(c: Char) = c.isLetterOrDigit() || c == '\'' || c == '’' || c == '-'
+        var i = minOf(i0, j0); var j = maxOf(i0, j0)
+        // start: step back while the character before is part of the same word
+        var steps = 0
+        while (i > 0 && steps++ < 40) {
+            val t = text(i - 1, j)
+            val cur = text(i, j)
+            if (t.length <= cur.length || !word(t.first()) || cur.isEmpty() || !word(cur.first())) break
+            i--
+        }
+        // end: step on while the next character continues the word
+        steps = 0
+        while (steps++ < 40) {
+            val cur = text(i, j)
+            val t = text(i, j + 1)
+            if (t.length <= cur.length || cur.isEmpty() || !word(cur.last()) || !word(t.last())) break
+            j++
+        }
+        if (i == minOf(i0, j0) && j == maxOf(i0, j0)) return sel
+        return p.selectContent(
+            android.graphics.pdf.models.selection.SelectionBoundary(i),
+            android.graphics.pdf.models.selection.SelectionBoundary(j),
+        )
     }
 
     @androidx.annotation.RequiresApi(35)
