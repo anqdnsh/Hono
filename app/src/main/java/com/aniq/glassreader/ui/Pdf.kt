@@ -76,7 +76,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
@@ -230,9 +231,9 @@ private fun dimInvert(t: ReaderTheme): ColorMatrix {
 }
 
 /** Box coordinates → normalised full-page coordinates (accounts for trimmed margins). */
-private fun toPage(rd: Rendered, box: Size, p: Offset): Offset {
+private fun toPage(rd: Rendered, box: Size, p: Offset, align: Float = 0f): Offset {
     val cr = rd.crop
-    val r = fitRect(box, cr.width(), cr.height())
+    val r = fitRect(box, cr.width(), cr.height(), align)
     val bx = cr.left + (p.x - r.left) / r.width * cr.width()
     val by = cr.top + (p.y - r.top) / r.height * cr.height()
     return Offset(bx / rd.bmp.width, by / rd.bmp.height)
@@ -247,11 +248,14 @@ private fun fromPage(rd: Rendered, r: Rect, nx: Float, ny: Float): Offset {
     )
 }
 
-/** Where a page image lands inside its box when fitted (ContentScale.Fit). */
-private fun fitRect(box: Size, w: Int, h: Int): Rect {
+/**
+ * Where a page image lands inside its box when fitted (ContentScale.Fit).
+ * [align] -1 hugs the left edge, 1 the right (used to pull a two-page spread towards the fold).
+ */
+private fun fitRect(box: Size, w: Int, h: Int, align: Float = 0f): Rect {
     val a = w.toFloat() / h
     return if (box.width / box.height > a) {
-        val dw = box.height * a; Rect(Offset((box.width - dw) / 2, 0f), Size(dw, box.height))
+        val dw = box.height * a; Rect(Offset((box.width - dw) * (1f + align) / 2f, 0f), Size(dw, box.height))
     } else {
         val dh = box.width / a; Rect(Offset(0f, (box.height - dh) / 2), Size(box.width, dh))
     }
@@ -324,6 +328,8 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         }
     }
     LaunchedEffect(page) { delay(300); Store.updateProgress(book.id, page, 0, count) }
+    ReadingClock(book.id, page)
+    val loupe = rememberLoupe()
     LaunchedEffect(toast) { if (toast != null) { delay(1600); toast = null } }
 
     val topInset = WindowInsets.statusBarsIgnoringVisibility.asPaddingValues().calculateTopPadding()
@@ -339,15 +345,22 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fullW = constraints.maxWidth.toFloat()
-        val renderW = (constraints.maxWidth * 1.3f).roundToInt()
+        // landscape (the Fold opened sideways): one page on each half of the screen
+        val spread = constraints.maxWidth > constraints.maxHeight && count > 1
+        val step = if (spread) 2 else 1
+        val slotW = if (spread) fullW / 2f else fullW
+        val renderW = (slotW * 1.3f).roundToInt()
+        LaunchedEffect(spread) { if (spread && page % 2 == 1) page -= 1 }
 
-        LaunchedEffect(page, renderW) {
-            for (p in listOf(page, page + 1, page - 1)) {
-                if (p in 0 until count && bitmaps[p] == null) {
+        LaunchedEffect(page, renderW, spread) {
+            val want = if (spread) listOf(page, page + 1, page + 2, page + 3, page - 2, page - 1) else listOf(page, page + 1, page - 1)
+            val target = renderW.coerceIn(200, 2200)
+            for (p in want) {
+                if (p in 0 until count && bitmaps[p]?.bmp?.width != target) {
                     bitmaps[p] = withContext(paginationThread) { d.render(p, renderW) }
                 }
             }
-            bitmaps.keys.filter { abs(it - page) > 2 }.forEach { bitmaps.remove(it) }
+            bitmaps.keys.filter { it < page - 2 * step || it > page + 2 * step + 1 }.forEach { bitmaps.remove(it) }
         }
 
         val offset = remember { Animatable(0f) }
@@ -359,6 +372,8 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             if (region != null || tsel != null || active != null || sheet != 0) { region = null; tsel = null; active = null; sheet = 0; return true }
             return false
         }
+        // an accidental edge swipe just brings up the controls instead of closing the book
+        BackHandler(enabled = !chrome && region == null && tsel == null && active == null && sheet == 0) { chrome = true }
         BackHandler(enabled = region != null || tsel != null || active != null || sheet != 0) { clearTransient() }
         LaunchedEffect(Unit) {
             selectRequests.collectLatest { req ->
@@ -373,7 +388,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             turnJob?.cancel()
             scope.launch { fade.snapTo(1f) }
             chrome = false
-            val target = page + dir
+            val target = page + dir * step
             if (target !in 0 until count) {
                 haptics.play(Haptic.Reject)
                 turnJob = scope.launch {
@@ -401,29 +416,45 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         fun jump(p: Int) {
             sheet = 0; turnJob?.cancel(); pending = null
             scope.launch { offset.snapTo(0f) }
-            page = p.coerceIn(0, count - 1)
+            page = p.coerceIn(0, count - 1).let { if (spread) it - it % 2 else it }
         }
         val jumpRef by rememberUpdatedState<(Int) -> Unit>({ p -> jump(p) })
 
-        var boxSize by remember { mutableStateOf(IntSize.Zero) }
         val cutout = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
         val pageTop = maxOf(cutout, 30.dp) + 10.dp
         val pageBottom = 34.dp
         val sidePad = 18.dp
+        val topPxC = with(density) { pageTop.toPx() }
+        val padPxC = with(density) { sidePad.toPx() }
+        // the box each page is fitted into
+        val boxSz = Size(slotW - 2 * padPxC, constraints.maxHeight - topPxC - with(density) { pageBottom.toPx() })
+        // in a spread the left page hugs the fold from the left, the right page from the right
+        fun alignOf(slot: Int) = if (!spread) 0f else if (slot == 0) 1f else -1f
+        /** Which page a screen point falls on, and where it is inside that page's box. */
+        fun locate(pos: Offset): Triple<Int, Offset, Float>? {
+            val slot = if (spread && pos.x >= slotW) 1 else 0
+            val p = page + slot
+            if (p !in 0 until count) return null
+            return Triple(p, Offset(pos.x - slot * slotW - padPxC, pos.y - topPxC), alignOf(slot))
+        }
+        var regionPage by remember { mutableIntStateOf(0) }
+        var regionAlign by remember { mutableFloatStateOf(0f) }
+        var rootOff by remember { mutableStateOf(Offset.Zero) }
 
         Box(
             Modifier
                 .fillMaxSize()
+                .blockEdgeSwipes()
+                .onRootPosition { rootOff = it }
                 .hazeSource(haze)
-                .pointerInput(fullW) {
+                .pointerInput(fullW, spread) {
                     detectTapGestures(
                         onTap = { pos ->
                             // tapping an existing clip opens its actions
-                            val rd = bitmaps[page]
-                            val topPx = with(density) { pageTop.toPx() }
-                            val hit = if (rd != null && boxSize != IntSize.Zero) {
-                                val n = toPage(rd, Size(boxSize.width.toFloat(), boxSize.height.toFloat()),
-                                    Offset(pos.x - with(density) { sidePad.toPx() }, pos.y - topPx))
+                            val at = locate(pos)
+                            val rd = at?.let { bitmaps[it.first] }
+                            val hit = if (at != null && rd != null) {
+                                val n = toPage(rd, boxSz, at.second, at.third)
                                 val nx = n.x; val ny = n.y
                                 val lk = rd.links.firstOrNull { it.r.contains(nx, ny) }
                                 if (lk != null && region == null && tsel == null && active == null && sheet == 0) {
@@ -432,7 +463,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                                     else lk.uri?.let { u -> runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u))) } }
                                     return@detectTapGestures
                                 }
-                                clipsNow.firstOrNull { it.para == page && it.rect!!.let { q -> (q.indices step 4).any { i -> nx in q[i]..q[i + 2] && ny in q[i + 1]..q[i + 3] } } }
+                                clipsNow.firstOrNull { it.para == at.first && it.rect!!.let { q -> (q.indices step 4).any { i -> nx in q[i]..q[i + 2] && ny in q[i + 1]..q[i + 3] } } }
                             } else null
                             when {
                                 clearTransient() -> {}
@@ -446,7 +477,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                         onLongPress = { },
                     )
                 }
-                .pointerInput(fullW) {
+                .pointerInput(fullW, spread) {
                     val tracker = VelocityTracker()
                     var armed = false
                     detectHorizontalDragGestures(
@@ -459,7 +490,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                             val v = tracker.calculateVelocity().x
                             val o = offset.value
                             val dir = when { o < -fullW * 0.22f || v < -900f -> 1; o > fullW * 0.22f || v > 900f -> -1; else -> 0 }
-                            if (dir != 0 && page + dir in 0 until count) turnRef(dir, true)
+                            if (dir != 0 && page + dir * step in 0 until count) turnRef(dir, true)
                             else turnJob = scope.launch { offset.animateTo(0f, spring(0.8f, 500f)) }
                         },
                         onDragCancel = { turnJob = scope.launch { offset.animateTo(0f, spring(0.8f, 500f)) } },
@@ -467,45 +498,53 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                         change.consume()
                         tracker.addPosition(change.uptimeMillis, change.position)
                         val o = offset.value
-                        val blocked = (o + dx < 0 && page + 1 >= count) || (o + dx > 0 && page - 1 < 0)
+                        val blocked = (o + dx < 0 && page + step >= count) || (o + dx > 0 && page - 1 < 0)
                         val nextO = o + if (blocked) dx * 0.25f else dx
                         val past = !blocked && abs(nextO) > fullW * 0.22f
                         if (past != armed) { armed = past; if (past) haptics.play(Haptic.Threshold) }
                         scope.launch { offset.snapTo(nextO) }
                     }
                 }
-                .pointerInput(fullW) {
-                    // hold, then drag to frame a region of the page
+                .pointerInput(fullW, spread) {
+                    // hold, then drag to select text (or frame a region on scanned pages)
                     var start = Offset.Zero
-                    val topPx = pageTop.toPx()
-                    val padPx = sidePad.toPx()
+                    var origin = Offset.Zero
+                    var selPage = 0
+                    var align = 0f
                     var textMode = false
                     var startN = Offset.Zero
                     var rdNow: Rendered? = null
-                    fun boxSz() = Size(boxSize.width.toFloat(), boxSize.height.toFloat())
                     detectDragGesturesAfterLongPress(
                         onDragStart = { pos ->
-                            start = Offset(pos.x - padPx, pos.y - topPx)
-                            rdNow = bitmaps[page]
+                            val at = locate(pos) ?: return@detectDragGesturesAfterLongPress
+                            selPage = at.first; align = at.third
+                            start = at.second
+                            origin = pos - at.second
+                            regionPage = selPage; regionAlign = align
+                            rdNow = bitmaps[selPage]
                             textMode = rdNow?.hasText == true
                             selecting = true; active = null; chrome = false; tsel = null; region = null
                             haptics.play(Haptic.LongPress)
+                            loupe.show(rootOff.x + pos.x, rootOff.y + pos.y)
                             if (textMode) {
-                                startN = toPage(rdNow!!, boxSz(), start)
+                                startN = toPage(rdNow!!, boxSz, start, align)
                                 // a hair-wide span grabs the word under the finger
-                                selectRequests.value = Triple(page, startN.copy(x = startN.x - 0.004f), startN.copy(x = startN.x + 0.004f))
+                                selectRequests.value = Triple(selPage, startN.copy(x = startN.x - 0.004f), startN.copy(x = startN.x + 0.004f))
                             } else region = Rect(start, start)
                         },
                         onDrag = { change, _ ->
                             change.consume()
-                            val p = Offset(change.position.x - padPx, change.position.y - topPx)
+                            if (!selecting) return@detectDragGesturesAfterLongPress
+                            loupe.show(rootOff.x + change.position.x, rootOff.y + change.position.y)
+                            val p = change.position - origin
                             if (textMode) {
-                                selectRequests.value = Triple(page, startN, toPage(rdNow!!, boxSz(), p))
+                                selectRequests.value = Triple(selPage, startN, toPage(rdNow!!, boxSz, p, align))
                             } else {
                                 region = Rect(min(start.x, p.x), min(start.y, p.y), max(start.x, p.x), max(start.y, p.y))
                             }
                         },
                         onDragEnd = {
+                            loupe.hide()
                             selecting = false
                             haptics.play(Haptic.GestureEnd)
                             if (!textMode) {
@@ -513,26 +552,27 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                                 if (r == null || r.width < 24f || r.height < 24f) region = null
                             }
                         },
-                        onDragCancel = { selecting = false; region = null; tsel = null },
+                        onDragCancel = { loupe.hide(); selecting = false; region = null; tsel = null },
                     )
                 },
         ) {
             for (dlt in listOf(-1, 1, 0)) {
-                val p = page + dlt
+                for (slot in 0 until step) {
+                val p = page + dlt * step + slot
                 if (p !in 0 until count) continue
                 val rd = bitmaps[p] ?: continue
+                val align = alignOf(slot)
                 key(p) {
                 val img = remember(rd) { rd.bmp.asImageBitmap() }
                 val pageClips = clips.filter { it.para == p }
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .padding(top = pageTop, bottom = pageBottom, start = sidePad, end = sidePad)
-                        .graphicsLayer { translationX = offset.value + dlt * fullW; alpha = if (dlt == 0) fade.value else 1f }
-                        .let { if (dlt == 0) it.onSize { boxSize = it } else it }
+                        .graphicsLayer { translationX = offset.value + dlt * fullW + slot * slotW; alpha = if (dlt == 0) fade.value else 1f }
+                        .padding(top = pageTop, bottom = pageBottom, start = sidePad, end = sidePad + if (spread) maxWidth / 2 else 0.dp)
                         .drawBehind {
                             val cr = rd.crop
-                            val r = fitRect(size, cr.width(), cr.height())
+                            val r = fitRect(size, cr.width(), cr.height(), align)
                             drawImage(
                                 img,
                                 srcOffset = IntOffset(cr.left, cr.top),
@@ -558,20 +598,34 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                             }
                             for (h in pageClips) boxes(h.rect!!, HighlightColors[h.color.coerceIn(0, HighlightColors.lastIndex)], h.isClip)
                             if (dlt == 0) tsel?.takeIf { it.page == p }?.let { boxes(it.rects, theme.accent.copy(alpha = 0.7f), false) }
-                            if (dlt == 0) region?.let { rg ->
+                            if (dlt == 0 && p == regionPage) region?.let { rg ->
                                 drawRoundRect(theme.accent.copy(alpha = 0.12f), rg.topLeft, rg.size, CornerRadius(16f))
                                 drawRoundRect(theme.accent.copy(alpha = 0.85f), rg.topLeft, rg.size, CornerRadius(16f), style = Stroke(3f))
                             }
                         },
                 )
                 }
+                }
             }
+            // a soft crease down the middle of a spread, like the spine of a book
+            if (spread) Box(
+                Modifier.fillMaxSize().graphicsLayer { translationX = offset.value; alpha = fade.value }.drawBehind {
+                    val cx = size.width / 2f; val w = 28.dp.toPx()
+                    drawRect(
+                        androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            0f to Color.Transparent, 0.5f to (if (theme.light) Color.Black.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.04f)), 1f to Color.Transparent,
+                            startX = cx - w, endX = cx + w,
+                        ),
+                        topLeft = Offset(cx - w, 0f), size = Size(w * 2, size.height),
+                    )
+                }
+            )
         }
 
         // quiet furniture
         val furniture by animateFloatAsState(if (chrome) 0f else 1f, tween(200), label = "f")
         Text(
-            "${page + 1} of $count", color = theme.sub, fontFamily = Inter, fontSize = 11.sp,
+            if (spread && page + 1 < count) "${page + 1}–${page + 2} of $count" else "${page + 1} of $count", color = theme.sub, fontFamily = Inter, fontSize = 11.sp,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).graphicsLayer { alpha = furniture },
         )
 
@@ -629,11 +683,10 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         Toolbar(visible = region != null && !selecting, haze, theme, bottomInset) {
             HighlightColors.forEachIndexed { i, col ->
                 ColorDot(col, false) {
-                    val rg = region; val rd = bitmaps[page]
-                    if (rg != null && rd != null && boxSize != IntSize.Zero) {
+                    val rg = region; val rp = regionPage; val rd = bitmaps[rp]
+                    if (rg != null && rd != null) {
                         val bmp = rd.bmp
-                        val box = Size(boxSize.width.toFloat(), boxSize.height.toFloat())
-                        val p0 = toPage(rd, box, rg.topLeft); val p1 = toPage(rd, box, rg.bottomRight)
+                        val p0 = toPage(rd, boxSz, rg.topLeft, regionAlign); val p1 = toPage(rd, boxSz, rg.bottomRight, regionAlign)
                         val l = p0.x.coerceIn(0f, 1f); val t = p0.y.coerceIn(0f, 1f)
                         val rr = p1.x.coerceIn(0f, 1f); val b = p1.y.coerceIn(0f, 1f)
                         if (rr - l > 0.02f && b - t > 0.02f) {
@@ -642,7 +695,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                                 ((rr - l) * bmp.width).toInt().coerceAtLeast(1), ((b - t) * bmp.height).toInt().coerceAtLeast(1),
                             )
                             Store.addClip(
-                                Highlight(UUID.randomUUID().toString(), book.id, page, 0, 0, "", i, "Page ${page + 1}", rect = floatArrayOf(l, t, rr, b)),
+                                Highlight(UUID.randomUUID().toString(), book.id, rp, 0, 0, "", i, "Page ${rp + 1}", rect = floatArrayOf(l, t, rr, b)),
                                 crop,
                             )
                             haptics.play(Haptic.Confirm)
@@ -734,4 +787,5 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     }
 }
 
-private fun Modifier.onSize(block: (IntSize) -> Unit): Modifier = this.onSizeChanged(block)
+private fun Modifier.onRootPosition(block: (Offset) -> Unit): Modifier =
+    this.then(Modifier.onGloballyPositioned { block(it.positionInRoot()) })

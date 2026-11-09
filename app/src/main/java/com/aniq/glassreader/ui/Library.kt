@@ -198,17 +198,23 @@ private fun ContinueCard(book: Book, onOpen: (String) -> Unit, onOpenAt: (String
     val all by Store.highlights.collectAsState()
     val latest = remember(all, book.id) { all.filter { it.bookId == book.id }.sortedByDescending { it.createdAt }.take(2) }
     val count = remember(all, book.id) { all.count { it.bookId == book.id } }
+    val totalMs by Store.totalReadMs.collectAsState()
     val shape = RoundedCornerShape(28.dp)
     Column(
         Modifier
             .widthIn(max = 720.dp)
             .fillMaxWidth()
             .bouncyClick(pressedScale = 0.98f, onLongClick = onMore) { onOpen(book.id) }
-            .clip(shape)
-            .background(Card)
-            .hairline(shape)
+            .liquidGlass(shape)
             .padding(16.dp),
     ) {
+        // total time read, top-left
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 2.dp, bottom = 12.dp)) {
+            Icon(Line.Clock, null, tint = Primary.copy(alpha = 0.75f), modifier = Modifier.size(15.dp))
+            Text(formatReadTime(totalMs), color = Primary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 6.dp))
+            Text("total reading", color = Secondary, fontSize = 13.sp, modifier = Modifier.padding(start = 5.dp))
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Cover(book, Modifier.width(76.dp).aspectRatio(0.67f))
             Column(Modifier.padding(start = 16.dp).weight(1f)) {
@@ -228,7 +234,7 @@ private fun ContinueCard(book: Book, onOpen: (String) -> Unit, onOpenAt: (String
             }
         }
         Spacer(Modifier.height(16.dp))
-        Box(Modifier.fillMaxWidth().height(0.6.dp).background(Primary.copy(alpha = 0.08f)))
+        Box(Modifier.fillMaxWidth().height(0.6.dp).background(Primary.copy(alpha = 0.12f)))
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Recent highlights", color = Secondary, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
@@ -239,18 +245,12 @@ private fun ContinueCard(book: Book, onOpen: (String) -> Unit, onOpenAt: (String
                 modifier = Modifier.padding(top = 8.dp))
         }
         latest.forEach { h ->
-            Row(
-                Modifier.fillMaxWidth().padding(top = 10.dp)
+            Text(
+                if (h.isClip) "Clip from page ${h.para + 1}" else h.text.trim(),
+                color = Primary, fontSize = 15.sp, lineHeight = 21.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
                     .bouncyClick(pressedScale = 0.98f) { onOpenAt(h.bookId, h.para, h.start) },
-            ) {
-                Box(Modifier.padding(top = 3.dp).width(3.dp).height(36.dp).clip(RoundedCornerShape(50))
-                    .background(HighlightColors[h.color.coerceIn(0, HighlightColors.lastIndex)]))
-                Text(
-                    if (h.isClip) "Clip from page ${h.para + 1}" else h.text.trim(),
-                    color = Primary, fontSize = 15.sp, lineHeight = 21.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 12.dp),
-                )
-            }
+            )
         }
     }
 }

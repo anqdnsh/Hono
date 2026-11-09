@@ -82,6 +82,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
@@ -339,6 +340,7 @@ private fun ReaderBody(
         }
     }
     LaunchedEffect(anchor) { delay(400); Store.updateProgress(book.id, anchor.para, anchor.char, n) }
+    ReadingClock(book.id, anchor)
     LaunchedEffect(toast) { if (toast != null) { delay(1600); toast = null } }
 
     // ---- styles ----
@@ -361,9 +363,13 @@ private fun ReaderBody(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fullW = constraints.maxWidth.toFloat()
+        // landscape (the Fold opened sideways): a page on each half of the screen, like an open book
+        val spread = constraints.maxWidth > constraints.maxHeight
+        val step = if (spread) 2 else 1
+        val slotWdp = if (spread) maxWidth / 2 else maxWidth
         // use the whole screen: system bars are hidden while reading, so only the camera cutout is reserved
         val cutout = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
-        val contentWdp = (maxWidth.value - settings.margin * 2f - 16f).coerceAtLeast(200f).dp
+        val contentWdp = (slotWdp.value - settings.margin * 2f - 16f).coerceAtLeast(200f).dp
         val topReserve = maxOf(cutout, 30.dp) + 26.dp
         val bottomReserve = 40.dp
         val pageHdp = maxHeight - topReserve - bottomReserve
@@ -392,14 +398,21 @@ private fun ReaderBody(
 
         val pages = cache[sec]
         val cur = pages?.let { ps -> ps.indexOfLast { it.start <= anchor }.coerceAtLeast(0) } ?: 0
-        fun neighbour(d: Int): Page? {
+        /** The page [d] pages away from the current one, crossing into neighbouring chapters. */
+        fun pageAt(d: Int): Page? {
             val ps = pages ?: return null
             if (ps.isEmpty()) return null
-            return when (d) {
-                0 -> ps[cur]
-                1 -> if (cur < ps.lastIndex) ps[cur + 1] else cache[sec + 1]?.firstOrNull()
-                else -> if (cur > 0) ps[cur - 1] else cache[sec - 1]?.lastOrNull()
-            }
+            val i = cur + d
+            if (i in ps.indices) return ps[i]
+            return if (i > ps.lastIndex) cache[sec + 1]?.getOrNull(i - ps.size)
+            else cache[sec - 1]?.let { pv -> pv.getOrNull(pv.size + i) }
+        }
+        /** Where a turn in direction [d] lands: one page, or a whole spread in landscape. */
+        fun neighbour(d: Int): Page? = when {
+            d == 0 -> pageAt(0)
+            !spread -> pageAt(d)
+            d > 0 -> pageAt(2)
+            else -> pageAt(-2) ?: pageAt(-1)
         }
 
         // ---- page turning ----
@@ -460,6 +473,8 @@ private fun ReaderBody(
             anchor = Anchor(para.coerceIn(0, n - 1), char)
         }
 
+        // an accidental edge swipe just brings up the controls instead of closing the book
+        BackHandler(enabled = !chrome && selection == null && active == null && sheet == Sheet.None) { chrome = true }
         BackHandler(enabled = selection != null || active != null || sheet != Sheet.None) { clearTransient() }
         val jumpRef by rememberUpdatedState<(Int) -> Unit>({ p -> jump(p) })
 
@@ -486,6 +501,7 @@ private fun ReaderBody(
         Box(
             Modifier
                 .fillMaxSize()
+                .blockEdgeSwipes()
                 .hazeSource(haze)
                 .pointerInput(fullW) {
                     detectTapGestures(
@@ -535,8 +551,9 @@ private fun ReaderBody(
                     }
                 },
         ) {
-            for (d in listOf(-1, 1, 0)) {
-                val page = neighbour(d) ?: continue
+            for (d in listOf(-1, 1, 0)) for (slot in 0 until step) {
+                val page = (if (spread) pageAt(d * 2 + slot) else neighbour(d)) ?: continue
+                val shift = if (!spread) 0f else if (slot == 0) -fullW / 4f else fullW / 4f
                 key(page.start) { PageView(
                     page = page,
                     paginator = paginator,
@@ -548,7 +565,7 @@ private fun ReaderBody(
                         .align(Alignment.TopCenter)
                         .padding(top = topReserve)
                         .width(contentWdp)
-                        .graphicsLayer { translationX = offset.value + d * fullW; alpha = if (d == 0) fade.value else 1f },
+                        .graphicsLayer { translationX = offset.value + d * fullW + shift; alpha = if (d == 0) fade.value else 1f },
                     onTapHighlight = { active = it; selection = null },
                     onSelect = { s, isDragging -> selection = s; dragging = isDragging; active = null; chrome = false },
                     onLink = { target -> haptics.play(Haptic.Tick); jumpRef(target) },
@@ -567,12 +584,12 @@ private fun ReaderBody(
                 .graphicsLayer { alpha = chromeAlpha },
         )
         Row(
-            Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp).width(contentWdp)
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp).width(if (spread) maxWidth - (settings.margin * 2 + 16).dp else contentWdp)
                 .graphicsLayer { alpha = chromeAlpha },
         ) {
             val s = sections[sec]
             val left = if (pages != null && !s.split) {
-                val l = pages.size - 1 - cur
+                val l = (pages.size - 1 - cur - (step - 1)).coerceAtLeast(0)
                 if (l == 0) "Last page in chapter" else "$l ${if (l == 1) "page" else "pages"} left in chapter"
             } else ""
             Text(left, color = theme.sub, fontSize = 11.sp, fontFamily = Inter, modifier = Modifier.weight(1f))
@@ -808,12 +825,20 @@ private fun ParaText(
     val select by rememberUpdatedState(onSelect)
     val haptics = rememberHaptics()
     val selAlpha by animateFloatAsState(if (selection != null) 1f else 0f, tween(140), label = "sel")
+    val loupe = rememberLoupe()
+    val coords = remember { arrayOfNulls<androidx.compose.ui.layout.LayoutCoordinates>(1) }
+    fun showLoupe(pos: androidx.compose.ui.geometry.Offset) {
+        val c = coords[0]?.takeIf { it.isAttached } ?: return
+        val r = c.localToRoot(pos)
+        loupe.show(r.x, r.y)
+    }
 
     Text(
         annotated,
         style = style,
         onTextLayout = { layout = it },
         modifier = modifier
+            .onGloballyPositioned { coords[0] = it }
             .drawBehind {
                 val l = layout ?: return@drawBehind
                 val len = text.length
@@ -866,11 +891,13 @@ private fun ParaText(
                             moved = false
                             lastStart = anchor.first; lastEnd = anchor.last + 1
                             haptics.play(Haptic.LongPress)
+                            showLoupe(pos)
                             select(Sel(index, anchor.first, anchor.last + 1), true)
                         }
                     },
                     onDrag = { change, _ ->
                         change.consume()
+                        showLoupe(change.position)
                         layout?.let { l ->
                             val w = wordRange(text, l.getOffsetForPosition(change.position))
                             val s = min(anchor.first, w.first)
@@ -883,13 +910,14 @@ private fun ParaText(
                         }
                     },
                     onDragEnd = {
+                        loupe.hide()
                         haptics.play(Haptic.GestureEnd)
                         if (!moved) {
                             val r = sentenceRange(text, anchor.first)
                             select(Sel(index, r.first, r.last + 1), false)
                         } else select(Sel(index, lastStart, lastEnd), false)
                     },
-                    onDragCancel = { if (lastEnd > lastStart) select(Sel(index, lastStart, lastEnd), false) },
+                    onDragCancel = { loupe.hide(); if (lastEnd > lastStart) select(Sel(index, lastStart, lastEnd), false) },
                 )
             },
     )

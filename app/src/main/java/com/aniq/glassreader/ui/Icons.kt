@@ -33,6 +33,7 @@ object Line {
     private const val HEART =
         "M12,20.2C12,20.2 3.6,15.1 3.6,9.1C3.6,6.5 5.6,4.6 8,4.6C9.7,4.6 11.2,5.6 12,7C12.8,5.6 14.3,4.6 16,4.6C18.4,4.6 20.4,6.5 20.4,9.1C20.4,15.1 12,20.2 12,20.2Z"
 
+    val Clock by lazy { stroke("clock", "M12,3.8A8.2,8.2 0,1 1,11.99,3.8Z", "M12,7.5V12L15,14") }
     val Plus by lazy { stroke("plus", "M12,5.5V18.5", "M5.5,12H18.5", width = 2f) }
     val Back by lazy { stroke("back", "M14.5,5.5L8,12L14.5,18.5", width = 2.2f) }
     val Close by lazy { stroke("close", "M7,7L17,17", "M17,7L7,17", width = 2f) }

@@ -93,6 +93,7 @@ object Store {
             coverScreen = prefs.getBoolean("coverScreen", d.coverScreen),
             uiMode = prefs.getInt("uiMode", d.uiMode),
         )
+        _totalReadMs.value = prefs.getLong("totalReadMs", _books.value.sumOf { it.readMs })
         initialized = true
         io.launch {
             val f = File(app.filesDir, "wallpaper.jpg"); val b = File(app.filesDir, "wallpaper_blur.jpg")
@@ -218,6 +219,24 @@ object Store {
             clips.forEach { File(clipsDir, "$it.webp").delete() }
         }
         scheduleSave()
+    }
+
+    /** Lifetime reading time across every book (survives removing a book). */
+    private val _totalReadMs = MutableStateFlow(0L)
+    val totalReadMs: StateFlow<Long> = _totalReadMs
+
+    fun addReadTime(id: String, ms: Long) {
+        if (ms <= 0) return
+        _books.value = _books.value.map { if (it.id == id) it.copy(readMs = it.readMs + ms) else it }
+        _totalReadMs.value += ms
+        prefs.edit().putLong("totalReadMs", _totalReadMs.value).apply()
+        scheduleSave(widgets = false)
+    }
+
+    /** Push fresh numbers to the home-screen widgets (e.g. after a reading session). */
+    fun refreshWidgets() {
+        widgetJob?.cancel()
+        widgetJob = io.launch { delay(300); Widgets.updateAll(app) }
     }
 
     fun markOpened(id: String) {

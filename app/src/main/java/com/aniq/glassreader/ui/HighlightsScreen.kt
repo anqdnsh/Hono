@@ -55,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -99,22 +100,25 @@ private fun rememberClip(h: Highlight): ImageBitmap? {
     return bmp
 }
 
-/** Blurred cover art + a glow in the highlight's colour, used behind every piece. */
+/** Blurred cover art behind a piece in the full-screen view. No highlight colour. */
 @Composable
 private fun ArtBackdrop(h: Highlight, modifier: Modifier, blur: Int = 50) {
     val cover = rememberCoverOf(h.bookId)
-    val tint = HighlightColors[h.color.coerceIn(0, HighlightColors.lastIndex)]
-    Box(modifier.background(Color(0xFF121214))) {
+    // clipToBounds: the cover is scaled up 1.5x for the blur, and without a clip it spilled
+    // over the neighbouring page in the pager and covered the right side of the quote.
+    Box(modifier.clipToBounds().background(Color(0xFF121214))) {
         if (cover != null) {
             Image(cover, null, contentScale = ContentScale.Crop,
                 modifier = Modifier.matchParentSize().graphicsLayer { scaleX = 1.5f; scaleY = 1.5f }.blur(blur.dp))
         }
-        Box(Modifier.matchParentSize().background(Brush.radialGradient(
-            listOf(tint.copy(alpha = 0.22f), Color.Transparent), center = Offset(0f, 0f), radius = 900f)))
         Box(Modifier.matchParentSize().background(Brush.verticalGradient(
             listOf(Color.Black.copy(alpha = 0.30f), Color.Black.copy(alpha = 0.62f)))))
     }
 }
+
+/** "The Mirror · Page 56" (PDF) or "Book · Chapter" (EPUB). */
+private fun sourceLine(h: Highlight, title: String): String =
+    listOf(title, h.chapter.takeIf { it.isNotBlank() && it != title }.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
 
 @Composable
 fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExportAll: () -> Unit, onSettings: () -> Unit) {
@@ -187,43 +191,37 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
     }
 }
 
-/** One framed piece in the gallery wall. */
+/** One piece on the gallery wall: clear liquid glass, the words, and where they came from. */
 @Composable
 private fun Frame(h: Highlight, bookTitle: String, modifier: Modifier, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(24.dp)
+    val shape = RoundedCornerShape(26.dp)
     val clip = rememberClip(h)
-    val tint = HighlightColors[h.color.coerceIn(0, HighlightColors.lastIndex)]
-    Box(modifier.fillMaxWidth().bouncyClick(pressedScale = 0.96f, onClick = onClick).clip(shape)) {
-        ArtBackdrop(h, Modifier.matchParentSize())
-        Column(Modifier.padding(16.dp)) {
-            Box(Modifier.size(width = 18.dp, height = 3.dp).clip(RoundedCornerShape(50)).background(tint))
-            Spacer(Modifier.height(12.dp))
-            if (h.isClip) {
-                if (clip != null) Image(clip, null, contentScale = ContentScale.FillWidth,
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(12.dp)))
-                else Box(Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.06f)))
-            } else {
-                Text(
-                    h.text.trim(), color = Color.White, fontSize = 16.sp, lineHeight = 22.sp,
-                    fontWeight = FontWeight.Medium, letterSpacing = (-0.2).sp,
-                    maxLines = 10, overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.height(14.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(bookTitle, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, fontWeight = FontWeight.Medium,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                if (h.favorite) Icon(Line.HeartFill, null, tint = Color(0xFFFF375F), modifier = Modifier.size(14.dp))
-            }
+    Column(
+        modifier.fillMaxWidth().bouncyClick(pressedScale = 0.96f, onClick = onClick)
+            .liquidGlass(shape)
+            .padding(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 14.dp)
+    ) {
+        if (h.isClip) {
+            if (clip != null) Image(clip, null, contentScale = ContentScale.FillWidth,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(14.dp)))
+            else Box(Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(14.dp)).background(Primary.copy(alpha = 0.06f)))
+        } else {
+            Text(
+                h.text.trim(), color = Primary, fontSize = 16.sp, lineHeight = 22.sp,
+                fontWeight = FontWeight.Medium, letterSpacing = (-0.2).sp,
+                maxLines = 10, overflow = TextOverflow.Ellipsis,
+            )
         }
-        Box(Modifier.matchParentSize().glassRim(shape))
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.fillMaxWidth().height(0.6.dp).background(Primary.copy(alpha = 0.12f)))
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(sourceLine(h, bookTitle), color = Primary.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (h.favorite) Icon(Line.HeartFill, null, tint = Color(0xFFFF375F), modifier = Modifier.size(14.dp).padding(start = 2.dp))
+        }
     }
 }
-
-private fun Modifier.glassRim(shape: androidx.compose.ui.graphics.Shape) = this.then(
-    Modifier.background(Brush.verticalGradient(0f to Color.White.copy(alpha = 0.06f), 0.4f to Color.Transparent))
-        .hairline(shape)
-)
 
 /** Swipeable, full-bleed view of each piece. */
 @Composable
@@ -261,9 +259,6 @@ private fun Exhibit(
                         .graphicsLayer { alpha = 1f - frac * 0.6f; val s = 1f - frac * 0.06f; scaleX = s; scaleY = s },
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Box(Modifier.size(width = 26.dp, height = 4.dp).clip(RoundedCornerShape(50))
-                        .background(HighlightColors[h.color.coerceIn(0, HighlightColors.lastIndex)]))
-                    Spacer(Modifier.height(20.dp))
                     if (h.isClip) {
                         val clip = rememberClip(h)
                         if (clip != null) Image(clip, null, contentScale = ContentScale.Fit,
@@ -280,7 +275,7 @@ private fun Exhibit(
                     }
                     Spacer(Modifier.height(24.dp))
                     Text(titles[h.bookId] ?: "", color = Color.White.copy(alpha = 0.75f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text(listOf(h.chapter, df.format(Date(h.createdAt))).filter { it.isNotBlank() }.joinToString(" · "),
+                    Text(listOf(h.chapter.takeIf { it != titles[h.bookId] }.orEmpty(), df.format(Date(h.createdAt))).filter { it.isNotBlank() }.joinToString(" · "),
                         color = Color.White.copy(alpha = 0.5f), fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
                 }
             }

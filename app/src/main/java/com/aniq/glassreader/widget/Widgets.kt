@@ -17,7 +17,7 @@ import com.aniq.glassreader.MainActivity
 import com.aniq.glassreader.R
 import com.aniq.glassreader.data.Highlight
 import com.aniq.glassreader.data.Store
-import com.aniq.glassreader.ui.HighlightColorInts
+import com.aniq.glassreader.ui.formatReadTime
 
 class ContinueReadingWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
@@ -75,6 +75,7 @@ object Widgets {
         val book = Store.lastRead() ?: Store.books.value.firstOrNull()
         if (book != null) {
             v.setProgressBar(R.id.progress, 1000, (book.progress * 1000).toInt(), false)
+            v.setTextViewText(R.id.percent, "${(book.progress * 100).toInt()}%")
             val cover = Store.cover(book.id, 420)
             if (cover != null) v.setImageViewBitmap(R.id.cover, rounded(cover, 10f)) else v.setImageViewResource(R.id.cover, R.mipmap.ic_launcher)
             v.setContentDescription(R.id.root, "Continue ${book.title}")
@@ -82,6 +83,7 @@ object Widgets {
         } else {
             v.setOnClickPendingIntent(R.id.root, openIntent(context, 8) {})
         }
+        v.setTextViewText(R.id.hours, "${formatReadTime(Store.totalReadMs.value)} read")
         ids.forEach { m.updateAppWidget(it, v) }
     }
 
@@ -122,6 +124,7 @@ object Widgets {
             v.setTextViewText(R.id.author, book.author)
             v.setProgressBar(R.id.progress, 1000, (book.progress * 1000).toInt(), false)
             v.setTextViewText(R.id.percent, "${(book.progress * 100).toInt()}% read")
+            v.setTextViewText(R.id.hours, "${formatReadTime(Store.totalReadMs.value)} total")
             val cover = Store.cover(book.id, 300)
             if (cover != null) v.setImageViewBitmap(R.id.cover, rounded(cover, 14f))
             else v.setImageViewResource(R.id.cover, R.mipmap.ic_launcher)
@@ -140,7 +143,7 @@ object Widgets {
             val book = Store.book(h.bookId)
             v.setTextViewText(R.id.quote, h.text.trim())
             v.setTextViewText(R.id.source, listOfNotNull(book?.title, h.chapter.takeIf { it.isNotBlank() && it != book?.title }).joinToString(" · "))
-            v.setInt(R.id.dot, "setColorFilter", HighlightColorInts[h.color.coerceIn(0, HighlightColorInts.size - 1)])
+            v.setInt(R.id.dot, "setColorFilter", 0xFF1C1C1E.toInt())
             v.setOnClickPendingIntent(clickId, openIntent(context, code) {
                 putExtra(EXTRA_OPEN_BOOK, h.bookId); putExtra(EXTRA_OPEN_PARA, h.para)
             })
