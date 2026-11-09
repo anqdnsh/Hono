@@ -40,6 +40,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.border
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -435,6 +439,103 @@ private fun BadgeDetail(b: Badge, onClose: () -> Unit) {
                 if (b.done) "Earned · ${b.tier.name}" else b.progressText,
                 color = if (b.done) b.tier.base else Primary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp),
             )
+        }
+    }
+}
+
+// ---------------- Popups while reading ----------------
+
+private class Celebration(val title: String, val sub: String, val badge: Badge?)
+
+/**
+ * Drops a little pill from the top of the page when you hit today's goal or earn a badge while reading.
+ * Follows the reading theme: light pill on light pages, dark pill on dark ones. Several at once queue up.
+ */
+@Composable
+fun Celebrations(theme: ReaderTheme, modifier: Modifier) {
+    val p = rememberProgress()
+    val badges = remember(p) { badgesOf(p) }
+    val queue = remember { androidx.compose.runtime.mutableStateListOf<Celebration>() }
+    var known by remember { mutableStateOf<Set<String>?>(null) }
+    var goalWas by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(badges) {
+        val reached = p.todayMin >= p.goalMin
+        if (goalWas == false && reached) {
+            queue.add(Celebration("Daily goal reached",
+                "${p.todayMin} min today" + if (p.streak > 1) " · ${p.streak} day streak" else "", null))
+        }
+        goalWas = reached
+        val done = badges.filter { it.done }.map { it.title }.toSet()
+        known?.let { k -> badges.filter { it.done && it.title !in k }.forEach { queue.add(Celebration("Badge earned", "${it.title} · ${it.tier.name}", it)) } }
+        known = done
+    }
+
+    val haptics = rememberHaptics()
+    var current by remember { mutableStateOf<Celebration?>(null) }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            androidx.compose.runtime.snapshotFlow { queue.size }.first { it > 0 }
+            current = queue.removeAt(0)
+            visible = true
+            kotlinx.coroutines.delay(120); haptics.play(Haptic.Confirm)
+            kotlinx.coroutines.delay(2600)
+            visible = false
+            kotlinx.coroutines.delay(450)
+        }
+    }
+
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.spring(0.58f, 360f)) { -it * 2 } +
+            androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(0.6f, 380f), initialScale = 0.85f) +
+            androidx.compose.animation.fadeIn(tween(160)),
+        exit = androidx.compose.animation.slideOutVertically(tween(300, easing = androidx.compose.animation.core.FastOutLinearInEasing)) { -it * 2 } +
+            androidx.compose.animation.scaleOut(tween(300), targetScale = 0.9f) + androidx.compose.animation.fadeOut(tween(260)),
+    ) {
+        val c = current ?: return@AnimatedVisibility
+        val light = theme.light
+        val bg = if (light) Color.White.copy(alpha = 0.97f) else Color(0xFF1C1C1E).copy(alpha = 0.95f)
+        val fg = if (light) Color(0xFF1C1C1E) else Color.White
+        val edge = if (light) Color.Black.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.12f)
+        val tint = c.badge?.tier?.base ?: Color(0xFFF2C24B)
+        // icon spins and pops in, with a soft burst of its colour behind it
+        val pop = remember(c) { androidx.compose.animation.core.Animatable(0.3f) }
+        val spin = remember(c) { androidx.compose.animation.core.Animatable(-25f) }
+        val glow = remember(c) { androidx.compose.animation.core.Animatable(0f) }
+        LaunchedEffect(c) {
+            kotlinx.coroutines.delay(110)
+            launch { pop.animateTo(1f, androidx.compose.animation.core.spring(0.42f, 300f)) }
+            launch { spin.animateTo(0f, androidx.compose.animation.core.spring(0.5f, 260f)) }
+            glow.animateTo(1f, tween(850, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+        }
+        Row(
+            Modifier.shadow(18.dp, RoundedCornerShape(50), ambientColor = Color.Black.copy(alpha = 0.25f), spotColor = Color.Black.copy(alpha = 0.25f))
+                .clip(RoundedCornerShape(50)).background(bg)
+                .border(0.8.dp, edge, RoundedCornerShape(50))
+                .padding(start = 8.dp, end = 22.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(48.dp).graphicsLayer {
+                    val g = glow.value; scaleX = 0.6f + g; scaleY = 0.6f + g; alpha = (1f - g) * 0.7f
+                }.clip(CircleShape).background(tint))
+                val iconMod = Modifier.size(48.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value; rotationZ = spin.value }
+                if (c.badge != null) BadgeArt(c.badge, iconMod)
+                else Canvas(iconMod) {
+                    val u = size.minDimension / 100f
+                    drawCircle(tint, 34f * u, center, style = Stroke(8f * u))
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(center.x - 14f * u, center.y + 1f * u); lineTo(center.x - 4f * u, center.y + 11f * u); lineTo(center.x + 15f * u, center.y - 10f * u)
+                    }
+                    drawPath(path, tint, style = Stroke(7f * u, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+                }
+            }
+            Column(Modifier.padding(start = 10.dp)) {
+                Text(c.title, color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = Inter)
+                Text(c.sub, color = fg.copy(alpha = 0.62f), fontSize = 12.sp, fontFamily = Inter)
+            }
         }
     }
 }
