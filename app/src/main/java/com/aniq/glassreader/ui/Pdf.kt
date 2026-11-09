@@ -638,6 +638,8 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         ) {
             Row(Modifier.fillMaxWidth().padding(top = topInset + 8.dp, start = 14.dp, end = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 GlassCircle(Line.Back, "Back", haze, tint = theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light, onClick = onBack)
+                // balances the two buttons on the right, so the title sits in the true centre of the screen
+                androidx.compose.foundation.layout.Spacer(Modifier.width(56.dp))
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     Text(
                         book.title, color = theme.text, fontFamily = Inter, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,

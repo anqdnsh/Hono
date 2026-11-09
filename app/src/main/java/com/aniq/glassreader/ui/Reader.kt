@@ -613,6 +613,8 @@ private fun ReaderBody(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 GlassCircle(Line.Back, "Back", haze, tint = theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light, onClick = onBack)
+                // balances the two buttons on the right, so the title sits in the true centre of the screen
+                Spacer(Modifier.width(56.dp))
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     Column(
                         Modifier
