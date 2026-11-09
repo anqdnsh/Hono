@@ -24,6 +24,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -585,12 +587,12 @@ private fun ReaderBody(
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val start = down.position
-                        val slop = androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation(down.id) { ch, _ -> ch.consume() }
+                        val slop = awaitHorizontalTouchSlopOrCancellation(down.id) { ch, _ -> ch.consume() }
                             ?: return@awaitEachGesture
                         val dir = if (slop.position.x < start.x) 1 else -1
                         val t = beginRef(dir) ?: return@awaitEachGesture
                         var last = slop.position.x; var vx = 0f
-                        androidx.compose.foundation.gestures.horizontalDrag(slop.id) { ch ->
+                        horizontalDrag(slop.id) { ch ->
                             val dx = ch.position.x - start.x; val dy = ch.position.y - start.y
                             val lift = max(0f, -dy) * 0.35f + abs(dx) * 0.10f
                             scope.launch { t.follow(dx, lift) }
@@ -615,7 +617,7 @@ private fun ReaderBody(
                 }
             }
             val paper = theme.bg.copy(alpha = 1f)
-            val halfDp = maxWidth / 2
+            val halfDp = with(density) { (fullW / 2f).toDp() }
             if (ct != null) {
                 val pv = { ct.p.value }
                 when {

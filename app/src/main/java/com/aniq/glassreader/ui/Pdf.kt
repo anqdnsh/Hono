@@ -60,6 +60,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -537,12 +539,12 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val start = down.position
-                        val slop = androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation(down.id) { ch, _ -> ch.consume() }
+                        val slop = awaitHorizontalTouchSlopOrCancellation(down.id) { ch, _ -> ch.consume() }
                             ?: return@awaitEachGesture
                         val dir = if (slop.position.x < start.x) 1 else -1
                         val t = beginRef(dir) ?: return@awaitEachGesture
                         var last = slop.position.x; var vx = 0f
-                        androidx.compose.foundation.gestures.horizontalDrag(slop.id) { ch ->
+                        horizontalDrag(slop.id) { ch ->
                             val dx = ch.position.x - start.x; val dy = ch.position.y - start.y
                             val lift = max(0f, -dy) * 0.35f + kotlin.math.abs(dx) * 0.10f
                             scope.launch { t.follow(dx, lift) }
@@ -646,7 +648,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                 }
             }
             val paper = theme.bg.copy(alpha = 1f)
-            val halfDp = maxWidth / 2
+            val halfDp = with(density) { (fullW / 2f).toDp() }
             if (ct != null) {
                 val pv = { ct.p.value }
                 when {

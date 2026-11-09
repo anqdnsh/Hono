@@ -49,10 +49,10 @@ fun Modifier.pageCurl(
     val sheetW = kotlin.math.abs(corner - hinge)
     val left = min(hinge, corner); val right = left + sheetW
     val sheet = listOf(Offset(left, 0f), Offset(right, 0f), Offset(right, h), Offset(left, h))
-    if (raw == null) { clipPath(poly(sheet)) { drawRect(paper, Offset(left, 0f), androidx.compose.ui.geometry.Size(sheetW, h)) }; drawContent(); return@drawWithContent }
+    if (raw == null) { clipPath(poly(sheet)) { drawRect(paper, Offset(left, 0f), androidx.compose.ui.geometry.Size(sheetW, h)); this@drawWithContent.drawContent() }; return@drawWithContent }
 
     // paper doesn't stretch: the corner stays within reach of the spine
-    var pt = raw
+    var pt: Offset = raw
     run {
         val toBottom = pt - Offset(hinge, h); val d = toBottom.getDistance()
         if (d > sheetW) pt = Offset(hinge, h) + toBottom * (sheetW / d)
@@ -61,7 +61,7 @@ fun Modifier.pageCurl(
     }
     val c = Offset(corner, h)
     val v = c - pt; val len = v.getDistance()
-    if (len < 0.5f) { clipPath(poly(sheet)) { drawRect(paper, Offset(left, 0f), androidx.compose.ui.geometry.Size(sheetW, h)) }; drawContent(); return@drawWithContent }
+    if (len < 0.5f) { clipPath(poly(sheet)) { drawRect(paper, Offset(left, 0f), androidx.compose.ui.geometry.Size(sheetW, h)); this@drawWithContent.drawContent() }; return@drawWithContent }
     val n = v / len; val m = (c + pt) / 2f
     val kept = clip(sheet, m, n, keep = true)
     val cut = clip(sheet, m, n, keep = false)
@@ -82,7 +82,7 @@ fun Modifier.pageCurl(
     // 2. the part of the page still lying flat
     if (kept.size >= 3) clipPath(poly(kept)) {
         drawRect(paper, Offset(left, 0f), androidx.compose.ui.geometry.Size(sheetW, h))
-        drawContent()
+        this@drawWithContent.drawContent()
     }
     if (flap.size < 3) return@drawWithContent
     val flapPath = poly(flap)
