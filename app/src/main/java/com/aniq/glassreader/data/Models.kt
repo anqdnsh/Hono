@@ -134,6 +134,7 @@ data class ReaderSettings(
     val pdfMode: Int = 0,        // 0 original, 1 match page colour, 2 night (inverted)
     val haptics: Boolean = true,
     val hapticLevel: Int = 2,    // 0 light, 1 medium, 2 strong
+    val pageSound: Boolean = false, // paper sound on page turns
     val volumeKeys: Boolean = true,
     val pageAnim: Int = 0,       // 0 slide, 1 fade (tap mode)
     val swipe: Boolean = false,  // false: tap the edges to turn; true: swipe pages with a paper curl

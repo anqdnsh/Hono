@@ -71,7 +71,18 @@ fun Modifier.pageCurl(
     val re = 2 * md * n.x; val rf = 2 * md * n.y
     fun reflect(q: Offset): Offset { val s = (q.x - m.x) * n.x + (q.y - m.y) * n.y; return Offset(q.x - 2 * s * n.x, q.y - 2 * s * n.y) }
     val flap = cut.map(::reflect)
-    val shade = if (dark) 0.55f else 0.36f
+    // As the sheet lays down flat on the other side (or back where it started) its shadows have
+    // nothing left to fall from, so fade them out over the last stretch instead of leaving a dark
+    // band on the new page until the settle spring finishes.
+    val land = Offset(2 * hinge - corner, h)
+    val fromLand = ((pt - land).getDistance() / (sheetW * 0.35f)).coerceIn(0f, 1f)
+    val fromRest = (len / (sheetW * 0.08f)).coerceIn(0f, 1f)
+    val k = min(fromLand, fromRest).let { it * it * (3 - 2 * it) }   // smoothstep
+    if (k <= 0.001f && fromLand <= 0.001f && contentBack.not()) {
+        // fully landed on a single page: nothing of this sheet is visible any more
+        return@drawWithContent
+    }
+    val shade = (if (dark) 0.55f else 0.36f) * k
 
     // 1. shadow the fold throws onto the page underneath
     if (cut.size >= 3) clipPath(poly(cut)) {
@@ -90,7 +101,7 @@ fun Modifier.pageCurl(
     drawIntoCanvas { cv ->
         val pnt = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
             color = paper.copy(alpha = 1f).toArgb()
-            setShadowLayer(18.dp.toPx(), -n.x * 5.dp.toPx(), -n.y * 5.dp.toPx(), Color.Black.copy(alpha = if (dark) 0.6f else 0.32f).toArgb())
+            setShadowLayer(18.dp.toPx(), -n.x * 5.dp.toPx(), -n.y * 5.dp.toPx(), Color.Black.copy(alpha = (if (dark) 0.6f else 0.32f) * k).toArgb())
         }
         cv.nativeCanvas.drawPath(flapPath.asAndroidPath(), pnt)
     }
@@ -115,9 +126,9 @@ fun Modifier.pageCurl(
         val depth = min(len, 150.dp.toPx())
         drawRect(
             Brush.linearGradient(
-                0f to Color.Black.copy(alpha = shade * 0.55f), 0.12f to Color.Black.copy(alpha = 0.05f),
-                0.35f to Color.White.copy(alpha = if (dark) 0.08f else 0.30f), 0.75f to Color.White.copy(alpha = 0.04f),
-                1f to Color.Black.copy(alpha = 0.10f),
+                0f to Color.Black.copy(alpha = shade * 0.55f), 0.12f to Color.Black.copy(alpha = 0.05f * k),
+                0.35f to Color.White.copy(alpha = (if (dark) 0.08f else 0.30f) * k), 0.75f to Color.White.copy(alpha = 0.04f * k),
+                1f to Color.Black.copy(alpha = 0.10f * k),
                 start = m, end = m - n * depth,
             ),
             topLeft = Offset(-size.width, 0f), size = androidx.compose.ui.geometry.Size(size.width * 3, h),

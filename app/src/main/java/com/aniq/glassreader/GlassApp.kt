@@ -7,5 +7,6 @@ class GlassApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Store.init(this)
+        com.aniq.glassreader.ui.PageSound.init(this)
     }
 }

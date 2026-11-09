@@ -422,6 +422,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                 return
             }
             pending = target
+            PageSound.play()
             if (!fromDrag) haptics.play(Haptic.PageTurn)
             if (settings.pageAnim == 1 && !fromDrag) {
                 turnJob = scope.launch { fade.animateTo(0f, tween(90)); page = target; pending = null; fade.animateTo(1f, tween(170)) }
@@ -527,7 +528,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         }
         val beginRef by rememberUpdatedState<(Int) -> CurlTurn?>({ beginCurl(it) })
         val endRef by rememberUpdatedState<(CurlTurn) -> Unit>({ endCurl(it) })
-        swipeTurn = { d -> beginCurl(d)?.let { t -> scope.launch { t.auto(); endCurl(t) } } }
+        swipeTurn = { d -> beginCurl(d)?.let { t -> PageSound.play(); scope.launch { t.auto(); endCurl(t) } } }
 
         Box(
             Modifier
@@ -553,7 +554,9 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                         }
                         val fling = if (dir > 0) vx < -8f else vx > 8f
                         val backFling = if (dir > 0) vx > 8f else vx < -8f
-                        scope.launch { t.settle(!backFling && (fling || t.fraction > 0.25f)); endRef(t) }
+                        val done = !backFling && (fling || t.fraction > 0.25f)
+                        if (done) PageSound.play()
+                        scope.launch { t.settle(done); endRef(t) }
                     }
                 })
                 .pointerInput(fullW, spread) {
