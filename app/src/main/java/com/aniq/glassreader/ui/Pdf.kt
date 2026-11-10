@@ -827,9 +827,8 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         }
 
         // region toolbar
-        Toolbar(visible = region != null && !selecting, haze, theme, bottomInset) {
-            HighlightColors.forEachIndexed { i, col ->
-                ColorDot(col, false) {
+        Toolbar(visible = region != null && !selecting, haze, theme, bottomInset, colors = ToolColors(lastColor) { i ->
+                run {
                     val rg = region; val rp = regionPage; val rd = bitmaps[rp]
                     if (rg != null && rd != null) {
                         val bmp = rd.bmp
@@ -850,26 +849,22 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                         }
                     }
                     region = null
+                    lastColor = i
                 }
-            }
-            Divider(theme)
-            BarIcon(Line.Close, theme) { region = null }
+            }) {
+            BarIcon(Line.Close, theme, hideOnSide = true) { region = null }
         }
 
         // text selection toolbar
         var lastSel by remember { mutableStateOf<TextSel?>(null) }
         tsel?.let { lastSel = it }
-        Toolbar(visible = tsel != null && !selecting, haze, theme, bottomInset) {
-            HighlightColors.forEachIndexed { i, col ->
-                ColorDot(col, false) {
-                    lastSel?.let { t ->
-                        Store.addHighlight(Highlight(UUID.randomUUID().toString(), book.id, t.page, 0, 0, t.text, i, "Page ${t.page + 1}", rect = t.rects))
-                        haptics.play(Haptic.Confirm); toast = "Saved to Highlights"; lastColor = i
-                    }
-                    tsel = null
+        Toolbar(visible = tsel != null && !selecting, haze, theme, bottomInset, colors = ToolColors(lastColor) { i ->
+                lastSel?.let { t ->
+                    Store.addHighlight(Highlight(UUID.randomUUID().toString(), book.id, t.page, 0, 0, t.text, i, "Page ${t.page + 1}", rect = t.rects))
+                    haptics.play(Haptic.Confirm); toast = "Saved to Highlights"; lastColor = i
                 }
-            }
-            Divider(theme)
+                tsel = null
+            }) {
             // highlight and write a note in one go (uses the last colour you picked)
             BarIcon(Line.Note, theme) {
                 lastSel?.let { t ->
@@ -885,24 +880,27 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                 lastSel?.let { clipboardPdf.setText(androidx.compose.ui.text.AnnotatedString(it.text)) }
                 haptics.play(Haptic.Confirm); tsel = null; toast = "Copied"
             }
-            BarIcon(Line.Close, theme) { tsel = null }
+            BarIcon(Line.Close, theme, hideOnSide = true) { tsel = null }
         }
 
         // existing clip toolbar
         var lastActive by remember { mutableStateOf<Highlight?>(null) }
         activeLive?.let { lastActive = it }
-        Toolbar(visible = activeLive != null, haze, theme, bottomInset) {
+        Toolbar(visible = activeLive != null, haze, theme, bottomInset,
+            colors = ToolColors(lastActive?.color ?: 0, selected = lastActive?.color ?: 0) { i ->
+                lastActive?.let { Store.updateHighlight(it.id) { x -> x.copy(color = i) } }
+            }) {
             val h = lastActive
-            HighlightColors.forEachIndexed { i, col ->
-                ColorDot(col, h?.color == i) { h?.let { Store.updateHighlight(it.id) { x -> x.copy(color = i) } } }
-            }
-            Divider(theme)
             BarIcon(if (h?.favorite == true) Line.HeartFill else Line.Heart, theme, tint = if (h?.favorite == true) Color(0xFFFF375F) else theme.text) {
                 h?.let { Store.updateHighlight(it.id) { x -> x.copy(favorite = !x.favorite) } }
             }
             BarIcon(Line.Note, theme, tint = if (h?.note?.isNotBlank() == true) theme.accent else theme.text) { noteFor = h; active = null; sheet = 4 }
-            BarIcon(Line.Trash, theme) { h?.let { Store.removeHighlight(it.id) }; haptics.play(Haptic.Reject); active = null; toast = "Removed" }
+            BarIcon(Line.Trash, theme) { UndoState.offer(h?.let { Store.removeHighlight(it.id) }); haptics.play(Haptic.Reject); active = null }
         }
+
+        UndoBubble(haze, theme, bottomInset)
+        // side tools sit beside a framed region; text selections and clips use the middle of the screen
+        LaunchedEffect(region, tsel, active) { ToolAnchor.y = region?.center?.y ?: Float.NaN }
 
         // ---- end of the book ----
         val atEnd = page + (if (spread) 1 else 0) >= count - 1

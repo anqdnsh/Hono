@@ -122,6 +122,24 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
                     }
                     Line()
                     Pad { ToggleRow("Volume keys turn pages", "Down for next, up for previous", s.volumeKeys, UiTheme) { v -> set { it.copy(volumeKeys = v) } } }
+                    Line()
+                    Pad {
+                        Label("Highlight tools")
+                        Segmented(listOf("Bottom bar", "Side circles"), if (s.sideTools) 1 else 0, { i -> set { it.copy(sideTools = i == 1) } })
+                        Text(
+                            if (s.sideTools) "Clear glass circles beside the text you select."
+                            else "A glass bar along the bottom when you select text.",
+                            color = Secondary, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp),
+                        )
+                        if (s.sideTools) {
+                            Spacer(Modifier.height(10.dp))
+                            Segmented(listOf("Left", "Right"), if (s.toolsLeft) 0 else 1, { i -> set { it.copy(toolsLeft = i == 0) } })
+                        }
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    if (s.sideTools) Pad {
+                        LabeledSlider("Glass clarity", "${(s.glassClarity * 100).roundToInt()}%", s.glassClarity, 0f..1f, UiTheme) { v -> set { it.copy(glassClarity = v) } }
+                    }
                 }
             }
 

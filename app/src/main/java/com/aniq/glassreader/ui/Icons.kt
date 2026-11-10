@@ -68,6 +68,7 @@ object Line {
     val Chevron by lazy { stroke("chev", "M9.5,6L15.5,12L9.5,18", width = 2f) }
     val Paragraph by lazy { stroke("para", "M4.5,6H19.5", "M4.5,10H19.5", "M4.5,14H19.5", "M4.5,18H13") }
     val Search by lazy { stroke("search", "M10.6,4.4A6.2,6.2 0,1 1,10.59,4.4Z", "M15.3,15.3L19.8,19.8", width = 2f) }
+    val Undo by lazy { stroke("undo", "M9,14.5L4.5,10L9,5.5", "M4.5,10H14.5A5,5 0,0 1,14.5,20H11", width = 2f) }
     val Check by lazy { stroke("check", "M5.5,12.5L10,17L18.5,7.5", width = 2f) }
 
     private const val STAR =

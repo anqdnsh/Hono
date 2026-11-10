@@ -110,6 +110,9 @@ object Store {
             uiMode = prefs.getInt("uiMode", d.uiMode),
             twoPageUnfolded = prefs.getBoolean("twoPageOpen", d.twoPageUnfolded),
             dailyGoalMin = prefs.getInt("goalMin", d.dailyGoalMin),
+            sideTools = prefs.getBoolean("sideTools", d.sideTools),
+            toolsLeft = prefs.getBoolean("toolsLeft", d.toolsLeft),
+            glassClarity = prefs.getFloat("glassClarity", d.glassClarity),
         )
         _totalReadMs.value = prefs.getLong("totalReadMs", _books.value.sumOf { it.readMs })
         initialized = true
@@ -375,9 +378,22 @@ object Store {
         scheduleSave()
     }
 
-    fun removeHighlight(id: String) {
+    /** Removes a highlight and returns it, so it can be put back. A PDF clip's picture is kept a little longer for that. */
+    fun removeHighlight(id: String): Highlight? {
+        val h = _highlights.value.firstOrNull { it.id == id } ?: return null
         _highlights.value = _highlights.value.filterNot { it.id == id }
-        io.launch { File(clipsDir, "$id.webp").delete() }
+        if (h.isClip) io.launch {
+            delay(9_000)
+            if (_highlights.value.none { it.id == id }) File(clipsDir, "$id.webp").delete()
+        }
+        scheduleSave()
+        return h
+    }
+
+    /** Puts back a highlight removed moments ago. */
+    fun restoreHighlight(h: Highlight) {
+        if (_highlights.value.any { it.id == h.id }) return
+        _highlights.value = _highlights.value + h
         scheduleSave()
     }
 
@@ -491,6 +507,7 @@ object Store {
             .putFloat("grainAmt", s.grainAmount).putInt("pdfMode", s.pdfMode)
             .putBoolean("haptics", s.haptics).putInt("hapticLevel", s.hapticLevel).putBoolean("volKeys", s.volumeKeys).putInt("pageAnim", s.pageAnim).putBoolean("swipe", s.swipe).putBoolean("coverAuto", s.coverScreen).putInt("uiMode", s.uiMode)
             .putBoolean("twoPageOpen", s.twoPageUnfolded).putInt("goalMin", s.dailyGoalMin)
+            .putBoolean("sideTools", s.sideTools).putBoolean("toolsLeft", s.toolsLeft).putFloat("glassClarity", s.glassClarity)
             .apply()
     }
 

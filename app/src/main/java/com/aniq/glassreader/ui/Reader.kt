@@ -784,9 +784,7 @@ private fun ReaderBody(
         // ---- selection toolbar ----
         var lastSel by remember { mutableStateOf<Sel?>(null) }
         selection?.let { lastSel = it }
-        Toolbar(visible = selection != null && !dragging, haze, theme, bottomInset) {
-            HighlightColors.forEachIndexed { i, col -> ColorDot(col, false) { commit(i) } }
-            Divider(theme)
+        Toolbar(visible = selection != null && !dragging, haze, theme, bottomInset, colors = ToolColors(lastColor) { commit(it) }) {
             // highlight and write a note in one go (uses the last colour you picked)
             BarIcon(Line.Note, theme) { commit(lastColor, quiet = true)?.let { noteFor = it; sheet = Sheet.Note } }
             val word = lastSel?.let { s -> s.word ?: pickWord(c.paras[s.para].text.substring(s.start.coerceIn(0, c.paras[s.para].text.length), s.end.coerceIn(0, c.paras[s.para].text.length))) }
@@ -796,18 +794,17 @@ private fun ReaderBody(
                 lastSel?.let { s -> clipboard.setText(AnnotatedString(c.paras[s.para].text.substring(s.start, s.end))) }
                 selection = null; toast = "Copied"
             }
-            BarIcon(Line.Close, theme) { selection = null }
+            BarIcon(Line.Close, theme, hideOnSide = true) { selection = null }
         }
 
         // ---- existing highlight toolbar ----
         var lastActive by remember { mutableStateOf<Highlight?>(null) }
         activeLive?.let { lastActive = it }
-        Toolbar(visible = activeLive != null, haze, theme, bottomInset) {
+        Toolbar(visible = activeLive != null, haze, theme, bottomInset,
+            colors = ToolColors(lastActive?.color ?: 0, selected = lastActive?.color ?: 0) { i ->
+                lastActive?.let { Store.updateHighlight(it.id) { x -> x.copy(color = i) } }
+            }) {
             val h = lastActive
-            HighlightColors.forEachIndexed { i, col ->
-                ColorDot(col, h?.color == i) { h?.let { Store.updateHighlight(it.id) { x -> x.copy(color = i) } } }
-            }
-            Divider(theme)
             BarIcon(if (h?.favorite == true) Line.HeartFill else Line.Heart, theme,
                 tint = if (h?.favorite == true) Color(0xFFFF375F) else theme.text) {
                 h?.let { Store.updateHighlight(it.id) { x -> x.copy(favorite = !x.favorite) } }
@@ -815,8 +812,10 @@ private fun ReaderBody(
             }
             BarIcon(Line.Note, theme, tint = if (h?.note?.isNotBlank() == true) theme.accent else theme.text) { noteFor = h; active = null; sheet = Sheet.Note }
             BarIcon(Line.Copy, theme) { h?.let { clipboard.setText(AnnotatedString(it.text)) }; active = null; toast = "Copied" }
-            BarIcon(Line.Trash, theme) { h?.let { Store.removeHighlight(it.id) }; haptics.play(Haptic.Reject); active = null; toast = "Highlight removed" }
+            BarIcon(Line.Trash, theme) { UndoState.offer(h?.let { Store.removeHighlight(it.id) }); haptics.play(Haptic.Reject); active = null }
         }
+
+        UndoBubble(haze, theme, bottomInset)
 
         // ---- end of the book ----
         val storyEnd = remember(c) { endOfStory(c) }
@@ -991,6 +990,17 @@ private fun ParaText(
         val r = c.localToRoot(pos)
         loupe.show(r.x, r.y)
     }
+    /** Tells the side tools where a range of this paragraph sits on screen. */
+    fun anchorTo(start: Int, end: Int) {
+        val l = layout ?: return
+        val c = coords[0]?.takeIf { it.isAttached } ?: return
+        val len = text.length
+        if (len == 0) return
+        val a = l.getBoundingBox(start.coerceIn(0, len - 1))
+        val b = l.getBoundingBox((end - 1).coerceIn(0, len - 1))
+        ToolAnchor.y = c.localToRoot(androidx.compose.ui.geometry.Offset(0f, (a.top + b.bottom) / 2f)).y
+    }
+    LaunchedEffect(selection, layout) { selection?.let { if (it.end > it.start) anchorTo(it.start, it.end) } }
 
     Text(
         annotated,
@@ -1033,7 +1043,7 @@ private fun ParaText(
                     val up = waitForUpOrCancellation()
                     if (up != null && up.uptimeMillis - down.uptimeMillis < 400) {
                         up.consume()
-                        if (h != null) tapHl(h) else link(target)
+                        if (h != null) { anchorTo(h.start, h.end); tapHl(h) } else link(target)
                     }
                 }
             }
@@ -1086,37 +1096,21 @@ private fun ParaText(
 // ---------------- Controls ----------------
 
 @Composable
-internal fun Toolbar(
-    visible: Boolean,
-    haze: HazeState,
-    theme: ReaderTheme,
-    bottomInset: androidx.compose.ui.unit.Dp,
-    content: @Composable () -> Unit,
-) {
-    Box(Modifier.fillMaxSize()) {
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(tween(140)) + scaleIn(spring(0.62f, 600f), initialScale = 0.82f),
-            exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.88f),
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomInset + 22.dp),
-        ) {
-            Row(
-                Modifier
-                    .glass(haze, RoundedCornerShape(50), theme.glassTint, theme.bg, light = theme.light, floating = true)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) { content() }
-        }
-    }
-}
-
-@Composable
 internal fun BarIcon(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     theme: ReaderTheme,
     tint: Color = theme.text,
+    hideOnSide: Boolean = false,
     onClick: () -> Unit,
 ) {
+    // inside the side tools each button is its own liquid-glass circle
+    val side = LocalSideTools.current
+    if (side != null) {
+        if (hideOnSide) return
+        val index = remember { side.count++ }
+        LiquidCircle(side, index, onClick = onClick) { Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp)) }
+        return
+    }
     Box(Modifier.size(42.dp).bouncyClick(pressedScale = 0.82f, onClick = onClick), contentAlignment = Alignment.Center) {
         Icon(icon, null, tint = tint, modifier = Modifier.size(21.dp))
     }
@@ -1139,6 +1133,7 @@ internal fun ColorDot(color: Color, selected: Boolean, onClick: () -> Unit) {
 
 @Composable
 internal fun Divider(theme: ReaderTheme) {
+    if (LocalSideTools.current != null) return
     Box(Modifier.padding(horizontal = 6.dp).width(0.8.dp).height(22.dp).background(theme.text.copy(alpha = 0.18f)))
 }
 
