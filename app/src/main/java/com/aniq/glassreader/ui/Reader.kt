@@ -314,6 +314,8 @@ private fun ReaderBody(
     var lastColor by remember { mutableStateOf(0) }
     // the "You finished" card shows once, and not at all for a book you'd already finished
     var endDismissed by remember { mutableStateOf(book.isFinished) }
+    // turning the page lets go of the undo
+    LaunchedEffect(anchor) { UndoState.dismiss() }
 
     val allHl by Store.highlights.collectAsState()
     val allMarks by Store.bookmarks.collectAsState()
@@ -549,7 +551,7 @@ private fun ReaderBody(
             val overlaps = bookHl.filter { it.para == s.para && it.start < s.end && s.start < it.end }
             val start = min(s.start, overlaps.minOfOrNull { it.start } ?: s.start)
             val end = max(s.end, overlaps.maxOfOrNull { it.end } ?: s.end)
-            overlaps.forEach { Store.removeHighlight(it.id) }
+            val merged = overlaps.mapNotNull { Store.removeHighlight(it.id) }
             val h = Highlight(
                 id = UUID.randomUUID().toString(), bookId = book.id, para = s.para, start = start, end = end,
                 text = para.text.substring(start, end).trim(), color = color,
@@ -560,7 +562,7 @@ private fun ReaderBody(
             haptics.play(Haptic.Confirm)
             selection = null
             lastColor = color
-            if (!quiet) toast = "Saved to Highlights"
+            if (!quiet) UndoState.offerAdded(h, merged)
             return h
         }
 

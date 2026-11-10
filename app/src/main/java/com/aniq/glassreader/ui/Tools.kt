@@ -270,11 +270,32 @@ private fun ColorCircle(ctx: SideToolsCtx, colors: ToolColors) {
 
 // ---------------- Undo ----------------
 
-/** The highlight you just deleted, for five seconds. */
+/** The highlight you just made or deleted, for three seconds, so it can be taken back. */
 object UndoState {
     var pending by mutableStateOf<Highlight?>(null)
+    /** true: [pending] was just made; false: it was just deleted. */
+    var added by mutableStateOf(false)
+    /** Highlights a new one merged into, put back if the new one is undone. */
+    private var replaced: List<Highlight> = emptyList()
     var at by mutableLongStateOf(0L)
-    fun offer(h: Highlight?) { if (h != null) { pending = h; at = System.currentTimeMillis() } }
+
+    fun offer(h: Highlight?) {
+        if (h == null) return
+        pending = h; added = false; replaced = emptyList(); at = System.currentTimeMillis()
+    }
+
+    fun offerAdded(h: Highlight, merged: List<Highlight> = emptyList()) {
+        pending = h; added = true; replaced = merged; at = System.currentTimeMillis()
+    }
+
+    fun undo() {
+        val h = pending ?: return
+        if (added) { Store.removeHighlight(h.id); replaced.forEach { Store.restoreHighlight(it) } }
+        else Store.restoreHighlight(h)
+        pending = null
+    }
+
+    fun dismiss() { pending = null }
 }
 
 /**
@@ -289,16 +310,15 @@ internal fun UndoBubble(haze: HazeState, theme: ReaderTheme, bottomInset: androi
     LaunchedEffect(UndoState.at) {
         if (UndoState.pending == null) return@LaunchedEffect
         ring.snapTo(1f)
-        ring.animateTo(0f, tween(5000, easing = LinearEasing))
+        ring.animateTo(0f, tween(3000, easing = LinearEasing))
         UndoState.pending = null
     }
     var last by remember { mutableStateOf<Highlight?>(null) }
     if (h != null) last = h
     val haptics = rememberHaptics()
     val undo = {
-        last?.let { Store.restoreHighlight(it) }
+        UndoState.undo()
         haptics.play(Haptic.Confirm)
-        UndoState.pending = null
     }
     val ringMod = Modifier.drawWithContent {
         drawContent()
@@ -345,7 +365,10 @@ internal fun UndoBubble(haze: HazeState, theme: ReaderTheme, bottomInset: androi
                         .padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Highlight removed", color = theme.text, fontFamily = Inter, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    if (UndoState.added) last?.let {
+                        Box(Modifier.padding(end = 8.dp).size(10.dp).clip(CircleShape).background(HighlightColors[it.color.coerceIn(0, HighlightColors.lastIndex)]))
+                    }
+                    Text(if (UndoState.added) "Saved to Highlights" else "Highlight removed", color = theme.text, fontFamily = Inter, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Spacer(Modifier.width(12.dp))
                     Box(
                         ringMod.size(40.dp).clip(CircleShape).bouncyClick(pressedScale = 0.85f, haptic = null, onClick = undo),

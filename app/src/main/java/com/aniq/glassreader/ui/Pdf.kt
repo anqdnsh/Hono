@@ -347,6 +347,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     var active by remember { mutableStateOf<Highlight?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
     var endDismissed by remember { mutableStateOf(book.isFinished) }
+    LaunchedEffect(page) { UndoState.dismiss() }
     val bitmaps = remember { mutableStateMapOf<Int, Rendered>() }
 
     val allHl by Store.highlights.collectAsState()
@@ -840,12 +841,10 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                                 bmp, (l * bmp.width).toInt(), (t * bmp.height).toInt(),
                                 ((rr - l) * bmp.width).toInt().coerceAtLeast(1), ((b - t) * bmp.height).toInt().coerceAtLeast(1),
                             )
-                            Store.addClip(
-                                Highlight(UUID.randomUUID().toString(), book.id, rp, 0, 0, "", i, "Page ${rp + 1}", rect = floatArrayOf(l, t, rr, b)),
-                                crop,
-                            )
+                            val clip = Highlight(UUID.randomUUID().toString(), book.id, rp, 0, 0, "", i, "Page ${rp + 1}", rect = floatArrayOf(l, t, rr, b))
+                            Store.addClip(clip, crop)
                             haptics.play(Haptic.Confirm)
-                            toast = "Saved to Highlights"
+                            UndoState.offerAdded(clip)
                         }
                     }
                     region = null
@@ -860,8 +859,9 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         tsel?.let { lastSel = it }
         Toolbar(visible = tsel != null && !selecting, haze, theme, bottomInset, colors = ToolColors(lastColor) { i ->
                 lastSel?.let { t ->
-                    Store.addHighlight(Highlight(UUID.randomUUID().toString(), book.id, t.page, 0, 0, t.text, i, "Page ${t.page + 1}", rect = t.rects))
-                    haptics.play(Haptic.Confirm); toast = "Saved to Highlights"; lastColor = i
+                    val nh = Highlight(UUID.randomUUID().toString(), book.id, t.page, 0, 0, t.text, i, "Page ${t.page + 1}", rect = t.rects)
+                    Store.addHighlight(nh)
+                    haptics.play(Haptic.Confirm); UndoState.offerAdded(nh); lastColor = i
                 }
                 tsel = null
             }) {
