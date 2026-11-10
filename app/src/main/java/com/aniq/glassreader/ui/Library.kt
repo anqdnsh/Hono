@@ -244,7 +244,8 @@ fun LibraryScreen(
                         GlassCircle(Line.Gear, "Settings", haze, size = 40.dp, onClick = onSettings)
                     }
                 }
-                if (!searching) GoalChip(Modifier.padding(top = 2.dp), onClick = onGoals)
+                // with no book in progress there's no card, so the flame sits under the title instead
+                if (!searching && current == null && books.isNotEmpty()) GoalFlame(Modifier.padding(top = 2.dp), onClick = onGoals)
             } }
 
             if (searching && query.isNotBlank()) {
@@ -261,7 +262,7 @@ fun LibraryScreen(
                 if (current != null) {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "recentTitle") { SectionTitle("Continue Reading") }
                     item(span = { GridItemSpan(maxLineSpan) }, key = "continueCard") {
-                        ContinueCard(current, onOpen = onOpen, onOpenAt = onOpenAt, onMore = { menuFor = current })
+                        ContinueCard(current, onOpen = onOpen, onOpenAt = onOpenAt, onMore = { menuFor = current }, onGoals = onGoals)
                     }
                 }
                 if (inProgress.isNotEmpty()) {
@@ -332,7 +333,7 @@ fun LibraryScreen(
 
 /** Widget-style card: where you are in the current book, plus its latest highlights. */
 @Composable
-private fun ContinueCard(book: Book, onOpen: (String) -> Unit, onOpenAt: (String, Int, Int) -> Unit, onMore: () -> Unit) {
+private fun ContinueCard(book: Book, onOpen: (String) -> Unit, onOpenAt: (String, Int, Int) -> Unit, onMore: () -> Unit, onGoals: () -> Unit = {}) {
     val all by Store.highlights.collectAsState()
     val latest = remember(all, book.id) { all.filter { it.bookId == book.id }.sortedByDescending { it.createdAt }.take(2) }
     val count = remember(all, book.id) { all.count { it.bookId == book.id } }
@@ -352,6 +353,7 @@ private fun ContinueCard(book: Book, onOpen: (String) -> Unit, onOpenAt: (String
                 // total time read, top-right
                 Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.End) {
+                    GoalFlame(Modifier.padding(end = 6.dp), onClick = onGoals)
                     Row(
                         Modifier.clip(RoundedCornerShape(50)).background(Primary.copy(alpha = 0.10f))
                             .padding(horizontal = 10.dp, vertical = 5.dp),
@@ -542,50 +544,35 @@ private fun BookCard(
 }
 
 /**
- * Today's reading against your goal: a ring that fills as you read, the minutes, and a flame
- * with your streak. When you hit the goal the ring turns gold and the flame flickers. Tap for Goals.
+ * Your streak, as a flame. It stays grey until you've read today's goal, then lights up orange,
+ * glows once and flickers. Tap for Goals.
  */
 @Composable
-private fun GoalChip(modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun GoalFlame(modifier: Modifier = Modifier, onClick: () -> Unit) {
     val p = rememberProgress()
     val reached = p.todayMin >= p.goalMin
-    val frac by animateFloatAsState((p.todayMin.toFloat() / p.goalMin.coerceAtLeast(1)).coerceIn(0f, 1f), spring(0.9f, 120f), label = "goal")
-    val gold = Color(0xFFFFB340)
     val flame = Color(0xFFFF6B35)
+    val lit by animateFloatAsState(if (reached) 1f else 0f, spring(0.8f, 200f), label = "lit")
     val pulse = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(reached) {
-        if (reached) { pulse.snapTo(1f); pulse.animateTo(0f, tween(900)) }
-    }
+    LaunchedEffect(reached) { if (reached) { pulse.snapTo(1f); pulse.animateTo(0f, tween(900)) } }
     val flicker by androidx.compose.animation.core.rememberInfiniteTransition(label = "flame").animateFloat(
         0.92f, 1.08f,
         androidx.compose.animation.core.infiniteRepeatable(tween(520), androidx.compose.animation.core.RepeatMode.Reverse), label = "flicker",
     )
+    val tint = androidx.compose.ui.graphics.lerp(Tertiary, flame, lit)
     Row(
-        modifier.bouncyClick(pressedScale = 0.92f, haptic = Haptic.Tick, onClick = onClick)
-            .pillGlass()
-            .drawBehind { if (pulse.value > 0f) drawRect(gold.copy(alpha = 0.35f * pulse.value)) }
-            .padding(start = 7.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+        modifier.clip(RoundedCornerShape(50))
+            .bouncyClick(pressedScale = 0.88f, haptic = Haptic.Tick, onClick = onClick)
+            .drawBehind { if (pulse.value > 0f) drawCircle(flame.copy(alpha = 0.35f * pulse.value), radius = size.height) }
+            .padding(horizontal = 6.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        androidx.compose.foundation.Canvas(Modifier.size(18.dp)) {
-            val w = 3.dp.toPx()
-            val inset = w / 2
-            val arc = androidx.compose.ui.geometry.Size(size.width - w, size.height - w)
-            val tl = Offset(inset, inset)
-            drawArc(Primary.copy(alpha = 0.16f), 0f, 360f, false, topLeft = tl, size = arc, style = androidx.compose.ui.graphics.drawscope.Stroke(w))
-            drawArc(if (reached) gold else Primary, -90f, 360f * frac, false, topLeft = tl, size = arc,
-                style = androidx.compose.ui.graphics.drawscope.Stroke(w, cap = androidx.compose.ui.graphics.StrokeCap.Round))
-        }
-        Text("${p.todayMin} / ${p.goalMin} min", color = Primary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 7.dp))
-        if (p.streak > 0) {
-            Text("·", color = Tertiary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 6.dp))
-            Icon(Line.Flame, null, tint = flame, modifier = Modifier.size(14.dp).graphicsLayer {
-                val s = if (reached) flicker else 1f
-                scaleX = s; scaleY = s; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
-            })
-            Text("${p.streak}", color = Primary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 3.dp))
-        }
+        Icon(Line.Flame, if (reached) "Goal reached" else "Daily goal", tint = tint, modifier = Modifier.size(16.dp).graphicsLayer {
+            val s = if (reached) flicker else 1f
+            scaleX = s; scaleY = s; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
+        })
+        Text("${p.streak}", color = if (reached) Primary else Secondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 3.dp))
     }
 }
 
