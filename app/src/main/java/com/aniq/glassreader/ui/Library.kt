@@ -149,7 +149,7 @@ fun LibraryScreen(
     }
 
     @Composable
-    fun shelfCard(b: Book, draggable: Boolean, dim: Boolean = false) {
+    fun androidx.compose.foundation.lazy.grid.LazyGridItemScope.shelfCard(b: Book, draggable: Boolean, dim: Boolean = false) {
         val lifted = dragId == b.id
         var pressed by remember { mutableStateOf(false) }
         BookCard(
