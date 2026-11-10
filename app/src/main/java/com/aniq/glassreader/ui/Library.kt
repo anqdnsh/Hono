@@ -7,6 +7,7 @@ import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
@@ -132,6 +133,9 @@ fun LibraryScreen(
     var dragStart by remember { mutableStateOf(Offset.Zero) }
     val slots = remember { mutableMapOf<String, LayoutCoordinates>() }
     val toRead = (if (dragId != null) order.toList() else toReadIds).mapNotNull { byId[it] }
+    // gesture callbacks outlive a single composition, so they read the latest lists through these
+    val latestToRead by rememberUpdatedState(toReadIds)
+    val latestById by rememberUpdatedState(byId)
     fun dragTo(local: Offset) {
         val id = dragId ?: return
         dragDelta = local - dragStart
@@ -162,10 +166,10 @@ fun LibraryScreen(
                     draggable = draggable,
                     onPress = { pressed = it },
                     onTap = { haptics.play(Haptic.Tap); onOpen(b.id) },
-                    onMenu = { haptics.play(Haptic.LongPress); menuFor = b },
+                    onMenu = { haptics.play(Haptic.LongPress); menuFor = latestById[b.id] ?: b },
                     onLift = { at ->
                         haptics.play(Haptic.GestureStart)
-                        order.clear(); order.addAll(toReadIds)
+                        order.clear(); order.addAll(latestToRead)
                         dragStart = at; dragDelta = Offset.Zero; dragId = b.id
                     },
                     onMove = { dragTo(it) },
