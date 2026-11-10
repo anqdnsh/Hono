@@ -3,6 +3,13 @@ package com.aniq.glassreader.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.unit.toSize
+import kotlinx.coroutines.launch
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -127,58 +134,91 @@ fun LibraryScreen(
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     // ---- hold and drag to reorder "To read" ----
+    // The grid's slots are measured once when you lift a book and never re-read during the
+    // drag: the other covers are gliding to their new spots, and testing against them mid-glide
+    // made books swap back and forth. The lifted book is drawn from those fixed slots plus your
+    // finger, so it never jumps when the order changes, and it springs into place when dropped.
     val order = remember { mutableStateListOf<String>() }
     var dragId by remember { mutableStateOf<String?>(null) }
-    var dragDelta by remember { mutableStateOf(Offset.Zero) }
-    var dragStart by remember { mutableStateOf(Offset.Zero) }
+    var dragFrom by remember { mutableIntStateOf(0) }
+    var finger by remember { mutableStateOf(Offset.Zero) }      // how far the finger has moved
+    val fingerStart = remember { arrayOf(Offset.Zero) }
+    val slotRects = remember { mutableListOf<Rect?>() }
     val slots = remember { mutableMapOf<String, LayoutCoordinates>() }
+    val settle = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    var settleId by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     val toRead = (if (dragId != null) order.toList() else toReadIds).mapNotNull { byId[it] }
     // gesture callbacks outlive a single composition, so they read the latest lists through these
     val latestToRead by rememberUpdatedState(toReadIds)
     val latestById by rememberUpdatedState(byId)
+    fun slotAt(i: Int): Offset = slotRects.getOrNull(i)?.topLeft ?: slotRects.getOrNull(dragFrom)?.topLeft ?: Offset.Zero
+    /** Where the lifted book is drawn, relative to the slot it currently occupies. */
+    fun liftedOffset(id: String): Offset = slotAt(dragFrom) - slotAt(order.indexOf(id)) + finger
+
+    fun lift(id: String, local: Offset) {
+        val me = slots[id]?.takeIf { it.isAttached } ?: return
+        order.clear(); order.addAll(latestToRead)
+        slotRects.clear()
+        order.forEach { o -> slotRects.add(slots[o]?.takeIf { it.isAttached }?.let { c -> Rect(c.positionInRoot(), c.size.toSize()) }) }
+        dragFrom = order.indexOf(id).coerceAtLeast(0)
+        fingerStart[0] = me.positionInRoot() + local
+        finger = Offset.Zero
+        dragId = id
+        haptics.play(Haptic.GestureStart)
+    }
+
     fun dragTo(local: Offset) {
         val id = dragId ?: return
-        dragDelta = local - dragStart
         val me = slots[id]?.takeIf { it.isAttached } ?: return
-        val finger = me.positionInRoot() + local
-        val target = order.firstOrNull { other ->
-            other != id && slots[other]?.takeIf { it.isAttached }?.let { c ->
-                val p = c.positionInRoot()
-                finger.x in p.x..(p.x + c.size.width) && finger.y in p.y..(p.y + c.size.height)
+        val root = me.positionInRoot() + local
+        finger = root - fingerStart[0]
+        val cur = order.indexOf(id)
+        // only swap once the finger is well inside another slot, so edges don't flicker
+        val target = slotRects.indices.firstOrNull { j ->
+            j != cur && slotRects[j]?.let { r ->
+                val inset = r.width * 0.18f
+                root.x in (r.left + inset)..(r.right - inset) && root.y in (r.top + inset)..(r.bottom - inset)
             } == true
         } ?: return
-        val to = order.indexOf(target)
-        order.remove(id); order.add(to, id)
+        order.removeAt(cur); order.add(target, id)
         haptics.play(Haptic.TextMove)
+    }
+
+    fun drop(id: String, moved: Boolean) {
+        val landed = liftedOffset(id)
+        if (moved) { Store.reorderToRead(order.toList()); haptics.play(Haptic.GestureEnd) }
+        settleId = id
+        dragId = null
+        finger = Offset.Zero
+        scope.launch {
+            settle.snapTo(landed)
+            settle.animateTo(Offset.Zero, spring(dampingRatio = 0.72f, stiffness = 420f))
+            if (settleId == id) settleId = null
+        }
     }
 
     @Composable
     fun androidx.compose.foundation.lazy.grid.LazyGridItemScope.shelfCard(b: Book, draggable: Boolean, dim: Boolean = false) {
         val lifted = dragId == b.id
+        val settling = settleId == b.id
         var pressed by remember { mutableStateOf(false) }
         BookCard(
             b,
             Modifier
-                .zIndex(if (lifted) 2f else 0f)
-                .animateItem(placementSpec = if (lifted) null else spring(dampingRatio = 1f, stiffness = 300f, visibilityThreshold = androidx.compose.ui.unit.IntOffset.VisibilityThreshold))
+                .zIndex(if (lifted || settling) 2f else 0f)
+                .animateItem(placementSpec = if (lifted || settling) null else spring(dampingRatio = 1f, stiffness = 300f, visibilityThreshold = androidx.compose.ui.unit.IntOffset.VisibilityThreshold))
                 .onGloballyPositioned { if (draggable) slots[b.id] = it }
                 .coverGestures(
                     draggable = draggable,
                     onPress = { pressed = it },
                     onTap = { haptics.play(Haptic.Tap); onOpen(b.id) },
                     onMenu = { haptics.play(Haptic.LongPress); menuFor = latestById[b.id] ?: b },
-                    onLift = { at ->
-                        haptics.play(Haptic.GestureStart)
-                        order.clear(); order.addAll(latestToRead)
-                        dragStart = at; dragDelta = Offset.Zero; dragId = b.id
-                    },
+                    onLift = { at -> lift(b.id, at) },
                     onMove = { dragTo(it) },
-                    onDrop = { moved ->
-                        if (moved) { Store.reorderToRead(order.toList()); haptics.play(Haptic.GestureEnd) }
-                        dragId = null; dragDelta = Offset.Zero
-                    },
+                    onDrop = { moved -> if (dragId == b.id) drop(b.id, moved) },
                 ),
-            delta = if (lifted) dragDelta else Offset.Zero,
+            delta = when { lifted -> liftedOffset(b.id); settling -> settle.value; else -> Offset.Zero },
             lifted = lifted, pressed = pressed, dim = dim,
             onMore = { menuFor = b },
         )
