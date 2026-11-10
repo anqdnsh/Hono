@@ -171,11 +171,11 @@ fun NoteEditor(quote: String, initial: String, fg: Color, sub: Color, onSave: (S
 
 /** A note under a quote, in a quieter voice. */
 @Composable
-fun NoteLine(note: String, fg: Color, maxLines: Int = 4, modifier: Modifier = Modifier) {
+fun NoteLine(note: String, fg: Color, maxLines: Int = 4, modifier: Modifier = Modifier, query: String = "") {
     if (note.isBlank()) return
     Row(modifier.fillMaxWidth().padding(top = 10.dp)) {
         Box(Modifier.padding(top = 2.dp).size(width = 2.dp, height = 16.dp).clip(RoundedCornerShape(1.dp)).background(fg.copy(alpha = 0.35f)))
-        Text(note.trim(), color = fg.copy(alpha = 0.75f), fontFamily = Inter, fontSize = 13.sp, lineHeight = 18.sp, fontStyle = FontStyle.Italic,
+        Text(marked(note.trim(), query), color = fg.copy(alpha = 0.75f), fontFamily = Inter, fontSize = 13.sp, lineHeight = 18.sp, fontStyle = FontStyle.Italic,
             maxLines = maxLines, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp))
     }
 }

@@ -1,6 +1,28 @@
 package com.aniq.glassreader.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.unit.toSize
+import kotlinx.coroutines.launch
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.zIndex
+import com.aniq.glassreader.data.BookStatus
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -26,6 +48,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
@@ -83,12 +106,123 @@ fun LibraryScreen(
     onOpenAt: (String, Int, Int) -> Unit = { id, _, _ -> onOpen(id) },
 ) {
     val books by Store.books.collectAsState()
-    val recent = remember(books) { books.filter { it.lastOpened > 0 }.sortedByDescending { it.lastOpened }.take(12) }
-    val sorted = remember(books) { books.sortedBy { it.title.lowercase() } }
+    val current = remember(books) { Store.currentBook() }
+    val inProgress = remember(books, current) {
+        books.filter { (it.status == BookStatus.READING || it.status == BookStatus.PAUSED) && it.id != current?.id }
+            .sortedByDescending { it.lastOpened }
+    }
+    val toReadIds = remember(books, current) {
+        books.filter { it.status == BookStatus.TO_READ && it.id != current?.id }.sortedBy { it.rank }.map { it.id }
+    }
+    val finished = remember(books, current) {
+        books.filter { it.isFinished && it.id != current?.id }.sortedByDescending { maxOf(it.finishedAt, it.lastOpened) }
+    }
+    val byId = remember(books) { books.associateBy { it.id } }
     var menuFor by remember { mutableStateOf<Book?>(null) }
     var confirmRemove by remember { mutableStateOf<Book?>(null) }
+    var finishedOpen by remember { mutableStateOf(true) }
+    var searching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    BackHandler(enabled = searching) { searching = false; query = "" }
+    val found = remember(books, query) {
+        val q = query.trim()
+        if (q.isEmpty()) emptyList() else books.filter { it.title.contains(q, true) || it.author.contains(q, true) }
+            .sortedBy { it.title.lowercase() }
+    }
+    val haptics = rememberHaptics()
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    // ---- hold and drag to reorder "To read" ----
+    // The grid's slots are measured once when you lift a book and never re-read during the
+    // drag: the other covers are gliding to their new spots, and testing against them mid-glide
+    // made books swap back and forth. The lifted book is drawn from those fixed slots plus your
+    // finger, so it never jumps when the order changes, and it springs into place when dropped.
+    val order = remember { mutableStateListOf<String>() }
+    var dragId by remember { mutableStateOf<String?>(null) }
+    var dragFrom by remember { mutableIntStateOf(0) }
+    var finger by remember { mutableStateOf(Offset.Zero) }      // how far the finger has moved
+    val fingerStart = remember { arrayOf(Offset.Zero) }
+    val slotRects = remember { mutableListOf<Rect?>() }
+    val slots = remember { mutableMapOf<String, LayoutCoordinates>() }
+    val settle = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    var settleId by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val toRead = (if (dragId != null) order.toList() else toReadIds).mapNotNull { byId[it] }
+    // gesture callbacks outlive a single composition, so they read the latest lists through these
+    val latestToRead by rememberUpdatedState(toReadIds)
+    val latestById by rememberUpdatedState(byId)
+    fun slotAt(i: Int): Offset = slotRects.getOrNull(i)?.topLeft ?: slotRects.getOrNull(dragFrom)?.topLeft ?: Offset.Zero
+    /** Where the lifted book is drawn, relative to the slot it currently occupies. */
+    fun liftedOffset(id: String): Offset = slotAt(dragFrom) - slotAt(order.indexOf(id)) + finger
+
+    fun lift(id: String, local: Offset) {
+        val me = slots[id]?.takeIf { it.isAttached } ?: return
+        order.clear(); order.addAll(latestToRead)
+        slotRects.clear()
+        order.forEach { o -> slotRects.add(slots[o]?.takeIf { it.isAttached }?.let { c -> Rect(c.positionInRoot(), c.size.toSize()) }) }
+        dragFrom = order.indexOf(id).coerceAtLeast(0)
+        fingerStart[0] = me.positionInRoot() + local
+        finger = Offset.Zero
+        dragId = id
+        haptics.play(Haptic.GestureStart)
+    }
+
+    fun dragTo(local: Offset) {
+        val id = dragId ?: return
+        val me = slots[id]?.takeIf { it.isAttached } ?: return
+        val root = me.positionInRoot() + local
+        finger = root - fingerStart[0]
+        val cur = order.indexOf(id)
+        // only swap once the finger is well inside another slot, so edges don't flicker
+        val target = slotRects.indices.firstOrNull { j ->
+            j != cur && slotRects[j]?.let { r ->
+                val inset = r.width * 0.18f
+                root.x in (r.left + inset)..(r.right - inset) && root.y in (r.top + inset)..(r.bottom - inset)
+            } == true
+        } ?: return
+        order.removeAt(cur); order.add(target, id)
+        haptics.play(Haptic.TextMove)
+    }
+
+    fun drop(id: String, moved: Boolean) {
+        val landed = liftedOffset(id)
+        if (moved) { Store.reorderToRead(order.toList()); haptics.play(Haptic.GestureEnd) }
+        settleId = id
+        dragId = null
+        finger = Offset.Zero
+        scope.launch {
+            settle.snapTo(landed)
+            settle.animateTo(Offset.Zero, spring(dampingRatio = 0.72f, stiffness = 420f))
+            if (settleId == id) settleId = null
+        }
+    }
+
+    @Composable
+    fun androidx.compose.foundation.lazy.grid.LazyGridItemScope.shelfCard(b: Book, draggable: Boolean, dim: Boolean = false) {
+        val lifted = dragId == b.id
+        val settling = settleId == b.id
+        var pressed by remember { mutableStateOf(false) }
+        BookCard(
+            b,
+            Modifier
+                .zIndex(if (lifted || settling) 2f else 0f)
+                .animateItem(placementSpec = if (lifted || settling) null else spring(dampingRatio = 1f, stiffness = 300f, visibilityThreshold = androidx.compose.ui.unit.IntOffset.VisibilityThreshold))
+                .onGloballyPositioned { if (draggable) slots[b.id] = it }
+                .coverGestures(
+                    draggable = draggable,
+                    onPress = { pressed = it },
+                    onTap = { haptics.play(Haptic.Tap); onOpen(b.id) },
+                    onMenu = { haptics.play(Haptic.LongPress); menuFor = latestById[b.id] ?: b },
+                    onLift = { at -> lift(b.id, at) },
+                    onMove = { dragTo(it) },
+                    onDrop = { moved -> if (dragId == b.id) drop(b.id, moved) },
+                ),
+            delta = when { lifted -> liftedOffset(b.id); settling -> settle.value; else -> Offset.Zero },
+            lifted = lifted, pressed = pressed, dim = dim,
+            onMore = { menuFor = b },
+        )
+    }
 
     Box(Modifier.fillMaxSize()) {
         LazyVerticalGrid(
@@ -99,7 +233,8 @@ fun LibraryScreen(
             verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }, key = "title") {
-                ScreenTitle("Library") {
+                SearchableTitle("Library", haze, searching, query, "Search title or author",
+                    onSearching = { searching = it }, onQuery = { query = it }) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         GlassCircle(Line.Plus, "Add book", haze, size = 40.dp, onClick = onImport)
                         GlassCircle(Line.Gear, "Settings", haze, size = 40.dp, onClick = onSettings)
@@ -107,40 +242,38 @@ fun LibraryScreen(
                 }
             }
 
-            if (sorted.isEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "empty") { EmptyLibrary(onImport) }
-            }
-            if (recent.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "recentTitle") { SectionTitle("Continue Reading") }
-                item(span = { GridItemSpan(maxLineSpan) }, key = "continueCard") {
-                    ContinueCard(recent.first(), onOpen = onOpen, onOpenAt = onOpenAt, onMore = { menuFor = recent.first() })
+            if (searching && query.isNotBlank()) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "foundCount") {
+                    Text(if (found.isEmpty()) "No books match" else "Books · ${found.size}", color = Secondary, fontSize = 13.sp)
                 }
-                if (recent.size > 1) {
-                    item(span = { GridItemSpan(maxLineSpan) }, key = "alsoTitle") {
-                        Text("Also reading", color = Secondary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    }
-                    item(span = { GridItemSpan(maxLineSpan) }, key = "recent") {
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            contentPadding = PaddingValues(horizontal = 20.dp),
-                            modifier = Modifier.fillMaxWidth().layoutBleed(20.dp),
-                        ) {
-                            rowItems(recent.drop(1), key = { it.id }) { b ->
-                                Column(Modifier.width(96.dp).bouncyClick(onLongClick = { menuFor = b }) { onOpen(b.id) }) {
-                                    Cover(b, Modifier.fillMaxWidth().aspectRatio(0.67f))
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(b.title, color = Primary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(progressLabel(b), color = Secondary, fontSize = 11.sp, maxLines = 1)
-                                }
-                            }
-                        }
+                items(found, key = { "f-" + it.id }, span = { GridItemSpan(maxLineSpan) }) { b ->
+                    FoundRow(b, query, Modifier.animateItem()) { onOpen(b.id) }
+                }
+            } else {
+                if (books.isEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "empty") { EmptyLibrary(onImport) }
+                }
+                if (current != null) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "recentTitle") { SectionTitle("Continue Reading") }
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "continueCard") {
+                        ContinueCard(current, onOpen = onOpen, onOpenAt = onOpenAt, onMore = { menuFor = current })
                     }
                 }
-            }
-            if (sorted.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "allTitle") { SectionTitle("All Books") }
-                items(sorted, key = { it.id }) { b ->
-                    BookCard(b, Modifier.animateItem(), onClick = { onOpen(b.id) }, onMore = { menuFor = b })
+                if (inProgress.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "progTitle") { ShelfTitle("In progress", inProgress.size) }
+                    items(inProgress, key = { "b-" + it.id }) { b -> shelfCard(b, draggable = false) }
+                }
+                if (toRead.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "toReadTitle") {
+                        ShelfTitle("To read", toRead.size, hint = if (toRead.size > 1) "Hold and drag to reorder" else null)
+                    }
+                    items(toRead, key = { "b-" + it.id }) { b -> shelfCard(b, draggable = true) }
+                }
+                if (finished.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "finTitle") {
+                        ShelfTitle("Finished", finished.size, folded = !finishedOpen) { finishedOpen = !finishedOpen }
+                    }
+                    if (finishedOpen) items(finished, key = { "b-" + it.id }) { b -> shelfCard(b, draggable = false, dim = true) }
                 }
             }
         }
@@ -315,6 +448,7 @@ fun ActionSheet(visible: Boolean, haze: HazeState, onDismiss: () -> Unit, conten
         ) {
             Column(
                 Modifier
+                    .imePadding()
                     .padding(start = 10.dp, end = 10.dp, bottom = bottom + 10.dp)
                     .widthIn(max = 520.dp)
                     .fillMaxWidth()
@@ -366,22 +500,146 @@ fun ProgressLine(progress: Float, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun BookCard(book: Book, modifier: Modifier, onClick: () -> Unit, onMore: () -> Unit) {
-    Column(modifier) {
-        Cover(book, Modifier.fillMaxWidth().aspectRatio(0.67f).bouncyClick(onLongClick = onMore, onClick = onClick))
-        Row(Modifier.padding(top = 9.dp), verticalAlignment = Alignment.Top) {
-            Column(Modifier.weight(1f).bouncyClick(pressedScale = 0.98f, haptic = null, onClick = onClick)) {
+private fun BookCard(
+    book: Book,
+    modifier: Modifier,
+    delta: Offset,
+    lifted: Boolean,
+    pressed: Boolean,
+    dim: Boolean,
+    onMore: () -> Unit,
+) {
+    val lift by animateFloatAsState(if (lifted) 1f else 0f, spring(0.62f, 420f), label = "lift")
+    val press by animateFloatAsState(if (pressed && !lifted) 0.96f else 1f, spring(0.6f, Spring.StiffnessMedium), label = "press")
+    Column(
+        modifier.graphicsLayer {
+            translationX = delta.x; translationY = delta.y
+            val s = press * (1f + 0.06f * lift)
+            scaleX = s; scaleY = s
+            rotationZ = -3f * lift
+            alpha = if (dim && !lifted) 0.82f else 1f
+        }
+    ) {
+        Cover(book, Modifier.fillMaxWidth().aspectRatio(0.67f).shadow((22 * lift).dp, RoundedCornerShape(10.dp), clip = false))
+        if (book.status != BookStatus.TO_READ) ThinProgress(if (book.isFinished) 1f else book.progress, Modifier.padding(top = 8.dp))
+        Row(Modifier.padding(top = if (book.status != BookStatus.TO_READ) 6.dp else 9.dp), verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f)) {
                 Text(book.title, color = Primary, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    listOf(book.author, progressLabel(book)).filter { it.isNotBlank() }.joinToString(" · "),
-                    color = Secondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
+                if (book.author.isNotBlank()) Text(book.author, color = Secondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                StatusPill(book, Modifier.padding(top = 6.dp))
             }
             Box(
                 Modifier.padding(start = 4.dp).size(30.dp).bouncyClick(pressedScale = 0.8f, onClick = onMore),
                 contentAlignment = Alignment.Center,
             ) { Icon(Line.More, "More", tint = Secondary, modifier = Modifier.size(20.dp)) }
         }
+    }
+}
+
+/** A hairline of progress under a cover. */
+@Composable
+private fun ThinProgress(progress: Float, modifier: Modifier = Modifier) {
+    val p by animateFloatAsState(progress, spring(0.9f, 200f), label = "thin")
+    Box(modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(50)).background(Primary.copy(alpha = 0.14f))) {
+        Box(Modifier.fillMaxWidth(p.coerceIn(0.001f, 1f)).height(3.dp).clip(RoundedCornerShape(50)).background(Primary.copy(alpha = 0.9f)))
+    }
+}
+
+/** "In progress 3", optionally with a hint, or foldable like "Finished". */
+@Composable
+private fun ShelfTitle(text: String, count: Int, hint: String? = null, folded: Boolean = false, onToggle: (() -> Unit)? = null) {
+    val turn by animateFloatAsState(if (folded) 0f else 90f, spring(0.7f, 500f), label = "fold")
+    Row(
+        Modifier.fillMaxWidth().padding(top = 6.dp)
+            .then(if (onToggle != null) Modifier.bouncyClick(pressedScale = 0.98f, haptic = Haptic.Tick, onClick = onToggle) else Modifier),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, color = Primary, fontSize = 21.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp)
+        Text("$count", color = Tertiary, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 8.dp, top = 2.dp))
+        Spacer(Modifier.weight(1f))
+        if (hint != null) Text(hint, color = Tertiary, fontSize = 12.sp)
+        if (onToggle != null) Icon(Line.Chevron, if (folded) "Show" else "Hide", tint = Secondary,
+            modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = turn })
+    }
+}
+
+/** A search result: cover, title (matches marked), author and status. */
+@Composable
+private fun FoundRow(book: Book, query: String, modifier: Modifier, onClick: () -> Unit) {
+    val reviews by Store.reviews.collectAsState()
+    val rating = reviews[book.id]?.rating ?: 0
+    Row(
+        modifier.fillMaxWidth().bouncyClick(pressedScale = 0.98f, onClick = onClick)
+            .liquidGlass(RoundedCornerShape(22.dp)).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Cover(book, Modifier.width(42.dp).aspectRatio(0.67f))
+        Column(Modifier.padding(start = 14.dp).weight(1f)) {
+            Text(marked(book.title, query), color = Primary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                val sub = listOf(book.author, BookStatus.label(book.status)).filter { it.isNotBlank() }.joinToString(" · ")
+                Text(marked(sub, query), color = Secondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (rating > 0) MiniStars(rating, Modifier.padding(start = 8.dp), size = 11.dp)
+            }
+        }
+    }
+}
+
+/**
+ * Tap opens, hold opens the menu, and (for "To read") hold then move drags the book.
+ * Scrolling the shelf before the hold kicks in cancels everything, so the list scrolls normally.
+ */
+private fun Modifier.coverGestures(
+    draggable: Boolean,
+    onPress: (Boolean) -> Unit,
+    onTap: () -> Unit,
+    onMenu: () -> Unit,
+    onLift: (Offset) -> Unit,
+    onMove: (Offset) -> Unit,
+    onDrop: (Boolean) -> Unit,
+): Modifier = this.pointerInput(draggable) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        onPress(true)
+        val slop = viewConfiguration.touchSlop
+        var outcome = 2 // 0 tap, 1 cancelled, 2 held
+        withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+            while (true) {
+                val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
+                if (c == null) { outcome = 1; break }
+                if (c.changedToUp()) { outcome = if (c.isConsumed) 1 else 0; break }
+                if (c.isConsumed || (c.position - down.position).getDistance() > slop) { outcome = 1; break }
+            }
+        }
+        if (outcome != 2) {
+            onPress(false)
+            if (outcome == 0) onTap()
+            return@awaitEachGesture
+        }
+        onPress(false)
+        if (!draggable) {
+            onMenu()
+            // swallow the rest of this touch so letting go doesn't also open the book
+            while (true) {
+                val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                c.consume()
+                if (c.changedToUp()) break
+            }
+            return@awaitEachGesture
+        }
+        var last = down.position
+        onLift(last)
+        var moved = false
+        while (true) {
+            val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+            if (c.changedToUp()) { c.consume(); break }
+            c.consume()
+            last = c.position
+            if ((last - down.position).getDistance() > slop * 2) moved = true
+            onMove(last)
+        }
+        onDrop(moved)
+        if (!moved) onMenu()
     }
 }
 

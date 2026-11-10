@@ -46,6 +46,9 @@ object Store {
     val highlights: StateFlow<List<Highlight>> = _highlights
     private val _bookmarks = MutableStateFlow<List<Bookmark>>(emptyList())
     val bookmarks: StateFlow<List<Bookmark>> = _bookmarks
+    private val _reviews = MutableStateFlow<Map<String, Review>>(emptyMap())
+    /** Reviews keyed by book id. */
+    val reviews: StateFlow<Map<String, Review>> = _reviews
     /** Minutes read per day, keyed "2026-11-10". */
     private val _daily = MutableStateFlow<Map<String, Long>>(emptyMap())
     val daily: StateFlow<Map<String, Long>> = _daily
@@ -78,6 +81,8 @@ object Store {
         }
         _highlights.value = readArray("highlights.json").map { Highlight.fromJson(it) }
         _bookmarks.value = readArray("bookmarks.json").map { Bookmark.fromJson(it) }
+        _reviews.value = readArray("reviews.json").mapNotNull { runCatching { Review.fromJson(it) }.getOrNull() }
+            .filterNot { it.isEmpty }.associateBy { it.bookId }
         _daily.value = runCatching {
             val o = org.json.JSONObject(prefs.getString("daily", "{}")!!)
             o.keys().asSequence().associateWith { o.getLong(it) }
@@ -139,6 +144,7 @@ object Store {
             writeAtomic("library.json", b.toString())
             writeAtomic("highlights.json", h.toString())
             writeAtomic("bookmarks.json", JSONArray().apply { _bookmarks.value.forEach { put(it.toJson()) } }.toString())
+            writeAtomic("reviews.json", JSONArray().apply { _reviews.value.values.forEach { put(it.toJson()) } }.toString())
         }
         if (widgets) {
             widgetJob?.cancel()
@@ -151,6 +157,44 @@ object Store {
     fun book(id: String): Book? = _books.value.firstOrNull { it.id == id }
 
     fun lastRead(): Book? = _books.value.filter { it.lastOpened > 0 }.maxByOrNull { it.lastOpened }
+
+    /** The book you're on right now: the last one opened that isn't finished. */
+    fun currentBook(): Book? = _books.value.filter { it.lastOpened > 0 && !it.isFinished }.maxByOrNull { it.lastOpened }
+
+    fun setStatus(id: String, status: Int) {
+        val cur = book(id) ?: return
+        if (cur.status == status) return
+        val now = System.currentTimeMillis()
+        // a book moved back to "To read" goes to the end of the queue
+        val rank = if (status == BookStatus.TO_READ) (_books.value.maxOfOrNull { it.rank } ?: now) + 1 else cur.rank
+        _books.value = _books.value.map {
+            if (it.id == id) it.copy(status = status, rank = rank,
+                finishedAt = if (status == BookStatus.FINISHED) now else it.finishedAt) else it
+        }
+        scheduleSave()
+    }
+
+    /** New order for the "To read" shelf, first to last. */
+    fun reorderToRead(ids: List<String>) {
+        val pos = ids.withIndex().associate { (i, id) -> id to i.toLong() }
+        _books.value = _books.value.map { b -> pos[b.id]?.let { b.copy(rank = it) } ?: b }
+        scheduleSave(widgets = false)
+    }
+
+    // ---------- Reviews ----------
+
+    fun review(bookId: String): Review? = _reviews.value[bookId]
+
+    fun saveReview(r: Review) {
+        _reviews.value = if (r.isEmpty) _reviews.value - r.bookId
+            else _reviews.value + (r.bookId to r.copy(updatedAt = System.currentTimeMillis()))
+        scheduleSave()
+    }
+
+    fun rate(bookId: String, stars: Int) {
+        val cur = review(bookId) ?: Review(bookId)
+        saveReview(cur.copy(rating = stars.coerceIn(0, 5)))
+    }
 
     fun bookFile(b: Book) = File(booksDir, "${b.id}.${b.format}")
 
@@ -226,6 +270,7 @@ object Store {
         _books.value = _books.value.filterNot { it.id == id }
         _highlights.value = _highlights.value.filterNot { it.bookId == id }
         _bookmarks.value = _bookmarks.value.filterNot { it.bookId == id }
+        _reviews.value = _reviews.value - id
         contentCache.remove(id)
         io.launch {
             booksDir.listFiles()?.filter { it.name.startsWith(id) }?.forEach { it.delete() }
@@ -258,7 +303,11 @@ object Store {
     }
 
     fun markOpened(id: String) {
-        _books.value = _books.value.map { if (it.id == id) it.copy(lastOpened = System.currentTimeMillis()) else it }
+        _books.value = _books.value.map {
+            if (it.id != id) it
+            else it.copy(lastOpened = System.currentTimeMillis(),
+                status = if (it.status == BookStatus.TO_READ || it.status == BookStatus.PAUSED) BookStatus.READING else it.status)
+        }
         scheduleSave()
     }
 

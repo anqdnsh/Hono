@@ -264,6 +264,13 @@ private fun Home(
             }
         }
 
+        // the review sheet, opened from stars and pills anywhere on the home screens
+        ActionSheet(visible = ReviewPrompt.bookId != null, haze = haze, onDismiss = { ReviewPrompt.bookId = null }) {
+            var shown by remember { mutableStateOf<String?>(null) }
+            ReviewPrompt.bookId?.let { shown = it }
+            shown?.let { id -> androidx.compose.runtime.key(id) { ReviewEditor(id) { ReviewPrompt.bookId = null } } }
+        }
+
         AnimatedVisibility(
             visible = !settingsOpen && Overlays.open == 0,
             enter = slideInVertically(spring(0.8f, 500f)) { it * 2 } + fadeIn(tween(160)),

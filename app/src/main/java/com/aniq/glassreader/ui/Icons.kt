@@ -67,4 +67,11 @@ object Line {
     val Trophy by lazy { stroke("trophy", "M7.5,4.5H16.5V9.5A4.5,4.5 0,0 1,7.5,9.5Z", "M7.5,6.5H4.5C4.5,9.5 6,11 8,11", "M16.5,6.5H19.5C19.5,9.5 18,11 16,11", "M12,14V17.5", "M8.5,19.5H15.5", "M9.5,17.5H14.5") }
     val Chevron by lazy { stroke("chev", "M9.5,6L15.5,12L9.5,18", width = 2f) }
     val Paragraph by lazy { stroke("para", "M4.5,6H19.5", "M4.5,10H19.5", "M4.5,14H19.5", "M4.5,18H13") }
+    val Search by lazy { stroke("search", "M10.6,4.4A6.2,6.2 0,1 1,10.59,4.4Z", "M15.3,15.3L19.8,19.8", width = 2f) }
+    val Check by lazy { stroke("check", "M5.5,12.5L10,17L18.5,7.5", width = 2f) }
+
+    private const val STAR =
+        "M12,3.7L14.55,8.85L20.25,9.7L16.1,13.7L17.1,19.35L12,16.65L6.9,19.35L7.9,13.7L3.75,9.7L9.45,8.85Z"
+    val Star by lazy { stroke("star", STAR, width = 1.4f) }
+    val StarFill by lazy { filled("starFill", STAR) }
 }

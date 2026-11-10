@@ -175,7 +175,7 @@ fun rememberProgress(): Progress {
     val hl by Store.highlights.collectAsState()
     val books by Store.books.collectAsState()
     return remember(daily, settings.dailyGoalMin, total, hl, books) {
-        progressOf(daily, settings.dailyGoalMin, total, hl.size, hl.count { it.note.isNotBlank() }, books.count { it.progress >= 0.98f })
+        progressOf(daily, settings.dailyGoalMin, total, hl.size, hl.count { it.note.isNotBlank() }, books.count { it.isFinished })
     }
 }
 

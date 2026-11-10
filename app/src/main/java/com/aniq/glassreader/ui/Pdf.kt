@@ -346,6 +346,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
     var selecting by remember { mutableStateOf(false) }
     var active by remember { mutableStateOf<Highlight?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
+    var endDismissed by remember { mutableStateOf(book.isFinished) }
     val bitmaps = remember { mutableStateMapOf<Int, Rendered>() }
 
     val allHl by Store.highlights.collectAsState()
@@ -903,12 +904,34 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             BarIcon(Line.Trash, theme) { h?.let { Store.removeHighlight(it.id) }; haptics.play(Haptic.Reject); active = null; toast = "Removed" }
         }
 
+        // ---- end of the book ----
+        val atEnd = page + (if (spread) 1 else 0) >= count - 1
+        LaunchedEffect(atEnd) {
+            if (atEnd && !endDismissed) {
+                delay(350)
+                Store.setStatus(book.id, com.aniq.glassreader.data.BookStatus.FINISHED)
+                haptics.play(Haptic.Confirm)
+            }
+        }
+        AnimatedVisibility(
+            visible = atEnd && !endDismissed && sheet == 0 && !chrome && region == null && tsel == null,
+            enter = androidx.compose.animation.slideInVertically(spring(0.8f, 380f)) { it / 2 } + fadeIn(tween(220)) +
+                androidx.compose.animation.scaleIn(spring(0.8f, 380f), initialScale = 0.94f),
+            exit = androidx.compose.animation.slideOutVertically(spring(0.95f, 600f)) { it / 2 } + fadeOut(tween(160)),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(start = 14.dp, end = 14.dp, bottom = bottomInset + 18.dp),
+        ) {
+            EndOfBookCard(book, theme, haze, onKeepReading = { endDismissed = true }, onWriteReview = { sheet = 5 })
+        }
+
         GlassSheet(sheet != 0, haze, theme, bottomInset, onDismiss = { sheet = 0 }) {
             var last by remember { mutableIntStateOf(1) }
             if (sheet != 0) last = sheet
             var marksTab by remember { mutableIntStateOf(0) }
             if (last == 1) SettingsSheet(settings, theme, pdf = true)
             else if (last == 3) DefineContent(defineWord, theme.text, theme.sub)
+            else if (last == 5) key(book.id) {
+                ReviewEditor(book.id, theme.text, theme.sub) { sheet = 0; endDismissed = true; toast = "Review saved" }
+            }
             else if (last == 4) noteFor?.let { h ->
                 key(h.id) {
                     NoteEditor(h.text, clips.firstOrNull { it.id == h.id }?.note ?: h.note, theme.text, theme.sub) { t ->
