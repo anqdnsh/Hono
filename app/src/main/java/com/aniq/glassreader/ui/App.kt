@@ -86,7 +86,7 @@ sealed interface NavRequest {
 
 data class ReaderTarget(val bookId: String, val para: Int?, val char: Int = 0, val nonce: Long = System.nanoTime())
 
-enum class ExportKind { BookHighlights, BookFile, Bundle, AllHighlights }
+enum class ExportKind { BookHighlights, BookFile, Bundle, AllHighlights, BookMarked }
 
 private val screenSpring = spring<Float>(dampingRatio = 0.88f, stiffness = 400f)
 
@@ -99,6 +99,7 @@ fun App(nav: MutableState<NavRequest?>) {
     var importing by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val settings by Store.settings.collectAsState()
     val wall by Store.wallpaper.collectAsState()
     val wallBlur by Store.wallpaperBlur.collectAsState()
@@ -136,6 +137,9 @@ fun App(nav: MutableState<NavRequest?>) {
                     ExportKind.AllHighlights -> Store.exportHighlights(uri, null)
                     ExportKind.BookFile -> Store.exportBookFile(uri, book!!)
                     ExportKind.Bundle -> Store.exportBundle(uri, book!!)
+                    ExportKind.BookMarked -> appContext.contentResolver.openOutputStream(uri)!!.use {
+                        com.aniq.glassreader.data.MarkedExport.write(appContext, book!!, it)
+                    }
                 }
             }.onSuccess { toast = "Exported" }.onFailure { toast = "Export failed" }
         }
@@ -150,6 +154,7 @@ fun App(nav: MutableState<NavRequest?>) {
             ExportKind.AllHighlights -> mdSaver.launch("Hono highlights.md")
             ExportKind.BookFile -> fileSaver.launch("${safeName(book!!.title)}.${book.format}")
             ExportKind.Bundle -> zipSaver.launch("${safeName(book!!.title)} + highlights.zip")
+            ExportKind.BookMarked -> fileSaver.launch("${safeName(book!!.title)} (with highlights).${com.aniq.glassreader.data.MarkedExport.extensionFor(book)}")
         }
     }
 
@@ -260,7 +265,8 @@ private fun Home(
         ) {
             val sHaze = remember { HazeState() }
             Box(Modifier.fillMaxSize().background(AppBg)) {
-                SettingsScreen(sHaze, onPickWallpaper = onPickWallpaper, onExport = onExport, onBack = { settingsOpen = false })
+                SettingsScreen(sHaze, onPickWallpaper = onPickWallpaper, onExport = onExport, onBack = { settingsOpen = false },
+                    onOpen = { id -> settingsOpen = false; onOpen(id, null, 0) })
             }
         }
 

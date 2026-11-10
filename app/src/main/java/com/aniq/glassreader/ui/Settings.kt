@@ -68,7 +68,7 @@ private val UiTheme: ReaderTheme get() = ReaderTheme("ui", Card, Primary, Second
 private val Group: Color get() = if (UiMode.dark) Color(0xFF151517) else Color(0xFFF2F2F7)
 
 @Composable
-fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (ExportKind, Book?) -> Unit, onBack: () -> Unit) {
+fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (ExportKind, Book?) -> Unit, onBack: () -> Unit, onOpen: (String) -> Unit = {}) {
     val s by Store.settings.collectAsState()
     val books by Store.books.collectAsState()
     val all by Store.highlights.collectAsState()
@@ -76,6 +76,7 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
     var remove by remember { mutableStateOf<Book?>(null) }
     // null = the main list; otherwise one of the group pages
     var page by remember { mutableStateOf<String?>(null) }
+    val data = rememberDataTransfer(onOpen = onOpen)
     BackHandler(enabled = page != null) { page = null }
     val haptics = rememberHaptics()
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -127,7 +128,18 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
                 }
                 MenuGroup("Library") {
                     MenuRow(Line.Books, "Manage books", "${books.size}") { page = "books" }
+                    Line(inset = 60.dp)
+                    MenuRow(Line.Upload, "Export data", "", sub = "Everything, as one file for a new phone") { data.startExport() }
+                    Line(inset = 60.dp)
+                    MenuRow(Line.Download, "Import data", "", sub = "Open a Hono export file") { data.startImport() }
                 }
+                val last = com.aniq.glassreader.data.Backup.lastExport
+                Text(
+                    "Exports include your books, highlights, notes, reviews, reading progress, goals and settings." +
+                        if (last > 0) " Last export: ${java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(last))}." else "",
+                    color = Tertiary, fontSize = 12.sp, lineHeight = 16.sp,
+                    modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                )
             }
 
             if (pg == "goal") item {
@@ -263,10 +275,6 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
 
             if (pg == "books") item {
                 Section("Books", if (books.isEmpty()) null else "Removing a book also deletes its highlights.") {
-                    if (all.isNotEmpty()) {
-                        NavRow("Export all highlights", ".md") { onExport(ExportKind.AllHighlights, null) }
-                        if (books.isNotEmpty()) Line()
-                    }
                     if (books.isEmpty()) {
                         Text("No books yet", color = Secondary, fontSize = 15.sp, modifier = Modifier.padding(16.dp))
                     }
@@ -306,6 +314,8 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
             SheetAction("Remove", null, Color(0xFFFF453A), haptic = Haptic.Reject) { shown?.let { Store.delete(it.id) }; remove = null }
             SheetAction("Cancel", null) { remove = null }
         }
+
+        DataTransferSheets(data, haze)
     }
 }
 
@@ -326,7 +336,7 @@ private fun MenuGroup(title: String, content: @Composable ColumnScope.() -> Unit
 
 /** A row on the main page: a thin line icon in a small clear-glass circle, the name, its current value and a chevron. */
 @Composable
-private fun MenuRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, value: String, onClick: () -> Unit) {
+private fun MenuRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, value: String, sub: String? = null, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().bouncyClick(pressedScale = 0.98f, onClick = onClick).padding(start = 12.dp, end = 16.dp, top = 11.dp, bottom = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -334,9 +344,11 @@ private fun MenuRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title
         Box(Modifier.size(34.dp).pillGlass(androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = Primary, modifier = Modifier.size(18.dp))
         }
-        Text(title, color = Primary, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1,
-            modifier = Modifier.padding(start = 14.dp).weight(1f))
-        Text(value, color = Secondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        Column(Modifier.padding(start = 14.dp).weight(1f)) {
+            Text(title, color = Primary, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+            if (sub != null) Text(sub, color = Secondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (value.isNotEmpty()) Text(value, color = Secondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(start = 8.dp).widthIn(max = 170.dp))
         Icon(Line.Chevron, null, tint = Tertiary, modifier = Modifier.padding(start = 6.dp).size(16.dp))
     }
