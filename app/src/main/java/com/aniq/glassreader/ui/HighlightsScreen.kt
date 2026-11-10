@@ -7,6 +7,8 @@ import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.layout
+import kotlin.math.roundToInt
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.launch
@@ -198,10 +200,11 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
             modifier = Modifier.fillMaxSize().glassBackdrop().hazeSource(haze),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = top + 12.dp, bottom = bottom + 100.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalItemSpacing = 12.dp,
+            // spacing lives inside each card (Gap) so a closing book's cards can shrink it away too
+            verticalItemSpacing = 0.dp,
         ) {
             item(span = StaggeredGridItemSpan.FullLine, key = "title") {
-                Column(Modifier.padding(horizontal = 4.dp)) {
+                Column(Modifier.padding(horizontal = 4.dp).padding(bottom = Gap)) {
                     SearchableTitle(
                         "Highlights", haze, searching, query, "Search highlights and notes",
                         onSearching = { searching = it }, onQuery = { query = it },
@@ -226,15 +229,17 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
             }
             if (searching && query.isNotBlank()) {
                 itemsIndexed(results, key = { _, h -> "r-" + h.id }) { i, h ->
-                    Frame(h, titles[h.bookId] ?: "", Modifier.animateItem(fadeInSpec = tween(180, delayMillis = (i * 25).coerceAtMost(200)), fadeOutSpec = tween(120), placementSpec = GlidePlacement),
+                    Frame(h, titles[h.bookId] ?: "", Modifier.animateItem(fadeInSpec = tween(180, delayMillis = (i * 25).coerceAtMost(200)), fadeOutSpec = tween(120), placementSpec = GlidePlacement).padding(bottom = Gap),
                         query = query, showBook = true) { exhibit = results to i }
                 }
             }
             if (!(searching && query.isNotBlank()) && quote != null) {
                 item(span = StaggeredGridItemSpan.FullLine, key = "today") {
-                    QuoteOfTheDay(quote, titles[quote.bookId] ?: "",
-                        onClick = { exhibit = listOf(quote) to 0 },
-                        onNext = { com.aniq.glassreader.widget.Widgets.nextQuote(context); tick++ })
+                    Box(Modifier.padding(bottom = Gap)) {
+                        QuoteOfTheDay(quote, titles[quote.bookId] ?: "",
+                            onClick = { exhibit = listOf(quote) to 0 },
+                            onNext = { com.aniq.glassreader.widget.Widgets.nextQuote(context); tick++ })
+                    }
                 }
             }
             if (searching && query.isNotBlank()) {
@@ -242,12 +247,12 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
             } else {
             if (all.isNotEmpty() || reviews.isNotEmpty()) {
                 item(span = StaggeredGridItemSpan.FullLine, key = "filter") {
-                    Segmented(listOf("All", "Loved", "Reviewed"), filter, { filter = it }, Modifier.padding(top = 6.dp).widthIn(max = 330.dp))
+                    Segmented(listOf("All", "Loved", "Reviewed"), filter, { filter = it }, Modifier.padding(top = 6.dp, bottom = Gap).widthIn(max = 330.dp))
                 }
             }
             if (groups.isEmpty()) {
                 item(span = StaggeredGridItemSpan.FullLine, key = "empty") {
-                    Column(Modifier.fillMaxWidth().padding(top = 50.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(Modifier.fillMaxWidth().padding(top = 50.dp, bottom = Gap), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(when (filter) { 0 -> "No highlights yet"; 1 -> "Nothing loved yet"; else -> "No reviews yet" },
                             color = Primary, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp)
                         Spacer(Modifier.height(8.dp))
@@ -269,7 +274,7 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
                 item(span = StaggeredGridItemSpan.FullLine, key = "book-$bookId") {
                     BookHeader(bookById[bookId], bookId, titles[bookId] ?: "Removed book", list.size, isOpen, review?.rating ?: 0,
                         Modifier.zIndex(1f).animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = GlidePlacement)
-                            .onPlaced { headerAt[bookId] = it }) {
+                            .onPlaced { headerAt[bookId] = it }.padding(bottom = Gap)) {
                         val anim = unfoldOf(bookId)
                         if (isOpen) {
                             opened = openSet - bookId
@@ -289,14 +294,14 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
                 if (hasCard && (isOpen || bookId in folding)) item(span = StaggeredGridItemSpan.FullLine, key = "review-$bookId") {
                     val mine = remember { arrayOfNulls<LayoutCoordinates>(1) }
                     ReviewCard(review!!, bookId,
-                        Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = GlidePlacement)
-                            .unfold(a, 0, n, { headerAt[bookId] }, mine)) { ReviewPrompt.open(bookId) }
+                        Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = if (isOpen) GlidePlacement else null)
+                            .unfold(a, 0, n, { headerAt[bookId] }, mine, closing = !isOpen).padding(bottom = Gap)) { ReviewPrompt.open(bookId) }
                 }
                 if (isOpen || bookId in folding) itemsIndexed(list, key = { _, h -> h.id }) { i, h ->
                     val mine = remember { arrayOfNulls<LayoutCoordinates>(1) }
                     Frame(h, titles[h.bookId] ?: "",
-                        Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = GlidePlacement)
-                            .unfold(a, i + (if (hasCard) 1 else 0), n, { headerAt[bookId] }, mine)) { exhibit = list to list.indexOf(h) }
+                        Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = if (isOpen) GlidePlacement else null)
+                            .unfold(a, i + (if (hasCard) 1 else 0), n, { headerAt[bookId] }, mine, closing = !isOpen).padding(bottom = Gap)) { exhibit = list to list.indexOf(h) }
                 }
             }
             }
@@ -351,9 +356,17 @@ private fun QuoteOfTheDay(h: Highlight, bookTitle: String, onClick: () -> Unit, 
     }
 }
 
+/** The gap under every card on this screen. */
+private val Gap = 12.dp
+
 /**
  * Folds a card into its book header: 0 = tucked under the header, 1 = fully dropped out.
  * The first card leads out and the last one leads back in.
+ *
+ * Opening: cards keep their size and slide down out of the header.
+ * Closing: cards also shrink their height (and the gap under them) as they fade, so the list
+ * gets shorter smoothly. Before, they were removed all at once at the end, and when you'd
+ * scrolled down the list had to snap back to fit — that was the jump.
  */
 private fun Modifier.unfold(
     a: Animatable<Float, AnimationVector1D>,
@@ -361,23 +374,44 @@ private fun Modifier.unfold(
     n: Int,
     header: () -> LayoutCoordinates?,
     mine: Array<LayoutCoordinates?>,
-): Modifier = this
-    .onPlaced { mine[0] = it }
-    .graphicsLayer {
+    closing: Boolean = false,
+): Modifier {
+    fun progress(v: Float): Float {
         val s = (0.5f / n.coerceAtLeast(1)).coerceAtMost(0.07f)
-        val t = ((a.value - s * i) / (1f - s * (n - 1).coerceAtLeast(0))).coerceIn(0f, 1f)
-        val head = header()?.takeIf { it.isAttached }
-        val me = mine[0]?.takeIf { it.isAttached }
-        // how far below the bottom of the book header this card sits
-        val drop = if (head != null && me != null)
-            (me.positionInRoot().y - (head.positionInRoot().y + head.size.height)).coerceAtLeast(0f) + size.height * 0.5f
-        else size.height
-        translationY = -drop * (1f - t)
-        alpha = (t * 1.4f - 0.2f).coerceIn(0f, 1f)
-        val sc = 0.86f + 0.14f * t
-        scaleX = sc; scaleY = sc
-        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+        return ((v - s * i) / (1f - s * (n - 1).coerceAtLeast(0))).coerceIn(0f, 1f)
     }
+    if (closing) return this
+        .layout { m, c ->
+            val p = m.measure(c)
+            val t = progress(a.value)
+            // ease the height so the space closes a little after the card starts to fade
+            val h = (p.height * (t * t * (3f - 2f * t))).roundToInt()
+            layout(p.width, h) {
+                p.placeWithLayer(0, 0) {
+                    alpha = (t * 1.4f - 0.2f).coerceIn(0f, 1f)
+                    val sc = 0.86f + 0.14f * t
+                    scaleX = sc; scaleY = sc
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                }
+            }
+        }
+    return this
+        .onPlaced { mine[0] = it }
+        .graphicsLayer {
+            val t = progress(a.value)
+            val head = header()?.takeIf { it.isAttached }
+            val me = mine[0]?.takeIf { it.isAttached }
+            // how far below the bottom of the book header this card sits
+            val drop = if (head != null && me != null)
+                (me.positionInRoot().y - (head.positionInRoot().y + head.size.height)).coerceAtLeast(0f) + size.height * 0.5f
+            else size.height
+            translationY = -drop * (1f - t)
+            alpha = (t * 1.4f - 0.2f).coerceIn(0f, 1f)
+            val sc = 0.86f + 0.14f * t
+            scaleX = sc; scaleY = sc
+            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+        }
+}
 
 /**
  * A book's row: cover, title, how many highlights, its status and your stars, washed in the
