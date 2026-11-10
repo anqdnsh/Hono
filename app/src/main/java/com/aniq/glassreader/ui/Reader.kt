@@ -144,7 +144,7 @@ object ReaderKeys {
 }
 
 private data class Sel(val para: Int, val start: Int, val end: Int, val word: String? = null)
-private enum class Sheet { None, Chapters, Settings, Marks, Define, Note }
+private enum class Sheet { None, Chapters, Settings, Marks, Define, Note, Review }
 private data class Anchor(val para: Int, val char: Int) : Comparable<Anchor> {
     override fun compareTo(other: Anchor) = if (para != other.para) para.compareTo(other.para) else char.compareTo(other.char)
 }
@@ -312,6 +312,8 @@ private fun ReaderBody(
     var defineWord by remember { mutableStateOf("") }
     var noteFor by remember { mutableStateOf<Highlight?>(null) }
     var lastColor by remember { mutableStateOf(0) }
+    // the "You finished" card shows once, and not at all for a book you'd already finished
+    var endDismissed by remember { mutableStateOf(book.isFinished) }
 
     val allHl by Store.highlights.collectAsState()
     val allMarks by Store.bookmarks.collectAsState()
@@ -816,6 +818,32 @@ private fun ReaderBody(
             BarIcon(Line.Trash, theme) { h?.let { Store.removeHighlight(it.id) }; haptics.play(Haptic.Reject); active = null; toast = "Highlight removed" }
         }
 
+        // ---- end of the book ----
+        val storyEnd = remember(c) { endOfStory(c) }
+        val ahead = if (spread) 2 else 1
+        val atEnd = pages != null && pages.isNotEmpty() && run {
+            val next = pageAt(ahead)
+            if (next != null) next.start.para >= storyEnd
+            else sec == sections.lastIndex && cur + ahead > pages.lastIndex
+        }
+        LaunchedEffect(atEnd) {
+            if (atEnd && !endDismissed) {
+                delay(350)
+                Store.setStatus(book.id, com.aniq.glassreader.data.BookStatus.FINISHED)
+                haptics.play(Haptic.Confirm)
+            }
+        }
+        AnimatedVisibility(
+            visible = atEnd && !endDismissed && selection == null && sheet == Sheet.None && !chrome,
+            enter = slideInVertically(spring(0.8f, 380f)) { it / 2 } + fadeIn(tween(220)) + scaleIn(spring(0.8f, 380f), initialScale = 0.94f),
+            exit = slideOutVertically(spring(0.95f, 600f)) { it / 2 } + fadeOut(tween(160)),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(start = 14.dp, end = 14.dp, bottom = bottomInset + 18.dp),
+        ) {
+            EndOfBookCard(book, theme, haze,
+                onKeepReading = { endDismissed = true },
+                onWriteReview = { sheet = Sheet.Review })
+        }
+
         // ---- sheets ----
         GlassSheet(sheet != Sheet.None, haze, theme, bottomInset, onDismiss = { sheet = Sheet.None }) {
             var lastSheet by remember { mutableStateOf(Sheet.Chapters) }
@@ -832,6 +860,9 @@ private fun ReaderBody(
                             sheet = Sheet.None; toast = if (t.isBlank()) "Note removed" else "Note saved"
                         }
                     }
+                }
+                Sheet.Review -> androidx.compose.runtime.key(book.id) {
+                    ReviewEditor(book.id, theme.text, theme.sub) { sheet = Sheet.None; endDismissed = true; toast = "Review saved" }
                 }
                 Sheet.None -> {}
             }

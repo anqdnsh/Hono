@@ -138,17 +138,37 @@ private fun sourceLine(h: Highlight, title: String): String =
 fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExportAll: () -> Unit, onSettings: () -> Unit) {
     val all by Store.highlights.collectAsState()
     val books by Store.books.collectAsState()
+    val reviews by Store.reviews.collectAsState()
+    var searching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    BackHandler(enabled = searching) { searching = false; query = "" }
+    val results = remember(all, query) {
+        val q = query.trim()
+        if (q.isEmpty()) emptyList()
+        else all.filter { it.text.contains(q, ignoreCase = true) || it.note.contains(q, ignoreCase = true) }
+            .sortedByDescending { it.createdAt }
+    }
+    val bookById = remember(books) { books.associateBy { it.id } }
     val context = androidx.compose.ui.platform.LocalContext.current
     var filter by remember { mutableIntStateOf(0) }
     // the full-screen view gets its own list, so the quote of the day can open even under "Loved"
     var exhibit by remember { mutableStateOf<Pair<List<Highlight>, Int>?>(null) }
     val titles = remember(books) { books.associate { it.id to it.title } }
-    val shown = remember(all, filter) { all.filter { filter == 0 || it.favorite } }
+    val shown = remember(all, filter, reviews) {
+        when (filter) {
+            1 -> all.filter { it.favorite }
+            2 -> all.filter { it.bookId in reviews }
+            else -> all
+        }
+    }
     // one group per book, newest-touched book first; inside a book, in reading order
-    val groups = remember(shown) {
-        shown.groupBy { it.bookId }.entries
+    val groups = remember(shown, filter, reviews, books) {
+        val g = shown.groupBy { it.bookId }.entries
             .sortedByDescending { e -> e.value.maxOf { it.createdAt } }
             .map { e -> e.key to e.value.sortedWith(compareBy({ it.para }, { it.start })) }
+        // under "Reviewed", books you reviewed without saving highlights still show up
+        if (filter != 2) g else g + reviews.values.filter { r -> g.none { it.first == r.bookId } && books.any { it.id == r.bookId } }
+            .sortedByDescending { it.updatedAt }.map { it.bookId to emptyList() }
     }
     val favCount = remember(all) { all.count { it.favorite } }
     // books fold away; the one read most recently starts open
@@ -182,39 +202,61 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
         ) {
             item(span = StaggeredGridItemSpan.FullLine, key = "title") {
                 Column(Modifier.padding(horizontal = 4.dp)) {
-                    ScreenTitle("Highlights") {
+                    SearchableTitle(
+                        "Highlights", haze, searching, query, "Search highlights and notes",
+                        onSearching = { searching = it }, onQuery = { query = it },
+                    ) {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             if (all.isNotEmpty()) GlassCircle(Line.Share, "Export all highlights", haze, size = 40.dp, onClick = onExportAll)
                             GlassCircle(Line.Gear, "Settings", haze, size = 40.dp, onClick = onSettings)
                         }
                     }
-                    Text(
-                        if (all.isEmpty()) "Nothing saved yet" else "${all.size} saved" + if (favCount > 0) " · $favCount loved" else "",
-                        color = Secondary, fontSize = 14.sp,
-                    )
+                    val subtitle = when {
+                        searching && query.isNotBlank() -> {
+                            val notes = results.count { it.note.contains(query.trim(), ignoreCase = true) }
+                            val hl = results.size
+                            if (hl == 0) "No matches" else "$hl highlight${if (hl == 1) "" else "s"}" + if (notes > 0) " · $notes note${if (notes == 1) "" else "s"}" else ""
+                        }
+                        all.isEmpty() -> "Nothing saved yet"
+                        else -> "${all.size} saved" + (if (favCount > 0) " · $favCount loved" else "") +
+                            (if (reviews.isNotEmpty()) " · ${reviews.size} reviewed" else "")
+                    }
+                    Text(subtitle, color = Secondary, fontSize = 14.sp)
                 }
             }
-            if (quote != null) {
+            if (searching && query.isNotBlank()) {
+                itemsIndexed(results, key = { _, h -> "r-" + h.id }) { i, h ->
+                    Frame(h, titles[h.bookId] ?: "", Modifier.animateItem(fadeInSpec = tween(180, delayMillis = (i * 25).coerceAtMost(200)), fadeOutSpec = tween(120), placementSpec = GlidePlacement),
+                        query = query, showBook = true) { exhibit = results to i }
+                }
+            }
+            if (!(searching && query.isNotBlank()) && quote != null) {
                 item(span = StaggeredGridItemSpan.FullLine, key = "today") {
                     QuoteOfTheDay(quote, titles[quote.bookId] ?: "",
                         onClick = { exhibit = listOf(quote) to 0 },
                         onNext = { com.aniq.glassreader.widget.Widgets.nextQuote(context); tick++ })
                 }
             }
-            if (all.isNotEmpty()) {
+            if (searching && query.isNotBlank()) {
+                // results only
+            } else {
+            if (all.isNotEmpty() || reviews.isNotEmpty()) {
                 item(span = StaggeredGridItemSpan.FullLine, key = "filter") {
-                    Segmented(listOf("All", "Loved"), filter, { filter = it }, Modifier.padding(top = 6.dp).widthIn(max = 260.dp))
+                    Segmented(listOf("All", "Loved", "Reviewed"), filter, { filter = it }, Modifier.padding(top = 6.dp).widthIn(max = 330.dp))
                 }
             }
-            if (shown.isEmpty()) {
+            if (groups.isEmpty()) {
                 item(span = StaggeredGridItemSpan.FullLine, key = "empty") {
                     Column(Modifier.fillMaxWidth().padding(top = 50.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(if (filter == 0) "No highlights yet" else "Nothing loved yet",
+                        Text(when (filter) { 0 -> "No highlights yet"; 1 -> "Nothing loved yet"; else -> "No reviews yet" },
                             color = Primary, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp)
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            if (filter == 0) "Hold on a sentence while you read.\nIn a PDF, hold and drag over the part you want."
-                            else "Tap the heart on a highlight to keep it here.",
+                            when (filter) {
+                                0 -> "Hold on a sentence while you read.\nIn a PDF, hold and drag over the part you want."
+                                1 -> "Tap the heart on a highlight to keep it here."
+                                else -> "Tap the stars on a book to rate and review it."
+                            },
                             color = Secondary, fontSize = 15.sp, textAlign = TextAlign.Center, lineHeight = 21.sp,
                         )
                     }
@@ -222,8 +264,10 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
             }
             groups.forEach { (bookId, list) ->
                 val isOpen = bookId in openSet
+                val review = reviews[bookId]
+                val hasCard = review != null && (review.text.isNotBlank() || review.tags.isNotEmpty())
                 item(span = StaggeredGridItemSpan.FullLine, key = "book-$bookId") {
-                    BookHeader(bookId, titles[bookId] ?: "Removed book", list.size, isOpen,
+                    BookHeader(bookById[bookId], bookId, titles[bookId] ?: "Removed book", list.size, isOpen, review?.rating ?: 0,
                         Modifier.zIndex(1f).animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = GlidePlacement)
                             .onPlaced { headerAt[bookId] = it }) {
                         val anim = unfoldOf(bookId)
@@ -241,29 +285,20 @@ fun HighlightsScreen(haze: HazeState, onOpen: (String, Int?, Int) -> Unit, onExp
                     }
                 }
                 val a = unfoldOf(bookId)
+                val n = list.size + if (hasCard) 1 else 0
+                if (hasCard && (isOpen || bookId in folding)) item(span = StaggeredGridItemSpan.FullLine, key = "review-$bookId") {
+                    val mine = remember { arrayOfNulls<LayoutCoordinates>(1) }
+                    ReviewCard(review!!, bookId,
+                        Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = GlidePlacement)
+                            .unfold(a, 0, n, { headerAt[bookId] }, mine)) { ReviewPrompt.open(bookId) }
+                }
                 if (isOpen || bookId in folding) itemsIndexed(list, key = { _, h -> h.id }) { i, h ->
                     val mine = remember { arrayOfNulls<LayoutCoordinates>(1) }
-                    val n = list.size
                     Frame(h, titles[h.bookId] ?: "",
                         Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = GlidePlacement)
-                            .onPlaced { mine[0] = it }
-                            .graphicsLayer {
-                                // stagger: the first highlight leads out, the last one leads back in
-                                val s = (0.5f / n).coerceAtMost(0.07f)
-                                val t = ((a.value - s * i) / (1f - s * (n - 1))).coerceIn(0f, 1f)
-                                val head = headerAt[bookId]?.takeIf { it.isAttached }
-                                val me = mine[0]?.takeIf { it.isAttached }
-                                // how far below the bottom of the book header this card sits
-                                val drop = if (head != null && me != null)
-                                    (me.positionInRoot().y - (head.positionInRoot().y + head.size.height)).coerceAtLeast(0f) + size.height * 0.5f
-                                else size.height
-                                translationY = -drop * (1f - t)
-                                alpha = (t * 1.4f - 0.2f).coerceIn(0f, 1f)
-                                val sc = 0.86f + 0.14f * t
-                                scaleX = sc; scaleY = sc
-                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
-                            }) { exhibit = list to list.indexOf(h) }
+                            .unfold(a, i + (if (hasCard) 1 else 0), n, { headerAt[bookId] }, mine)) { exhibit = list to list.indexOf(h) }
                 }
+            }
             }
         }
 
@@ -316,15 +351,47 @@ private fun QuoteOfTheDay(h: Highlight, bookTitle: String, onClick: () -> Unit, 
     }
 }
 
-/** A book's row: cover, title and how many highlights. Tap to open or fold away its highlights. */
+/**
+ * Folds a card into its book header: 0 = tucked under the header, 1 = fully dropped out.
+ * The first card leads out and the last one leads back in.
+ */
+private fun Modifier.unfold(
+    a: Animatable<Float, AnimationVector1D>,
+    i: Int,
+    n: Int,
+    header: () -> LayoutCoordinates?,
+    mine: Array<LayoutCoordinates?>,
+): Modifier = this
+    .onPlaced { mine[0] = it }
+    .graphicsLayer {
+        val s = (0.5f / n.coerceAtLeast(1)).coerceAtMost(0.07f)
+        val t = ((a.value - s * i) / (1f - s * (n - 1).coerceAtLeast(0))).coerceIn(0f, 1f)
+        val head = header()?.takeIf { it.isAttached }
+        val me = mine[0]?.takeIf { it.isAttached }
+        // how far below the bottom of the book header this card sits
+        val drop = if (head != null && me != null)
+            (me.positionInRoot().y - (head.positionInRoot().y + head.size.height)).coerceAtLeast(0f) + size.height * 0.5f
+        else size.height
+        translationY = -drop * (1f - t)
+        alpha = (t * 1.4f - 0.2f).coerceIn(0f, 1f)
+        val sc = 0.86f + 0.14f * t
+        scaleX = sc; scaleY = sc
+        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+    }
+
+/**
+ * A book's row: cover, title, how many highlights, its status and your stars, washed in the
+ * cover's own colours. Tap to open or fold away its highlights; tap the stars to review.
+ */
 @Composable
-private fun BookHeader(bookId: String, title: String, count: Int, open: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun BookHeader(book: com.aniq.glassreader.data.Book?, bookId: String, title: String, count: Int, open: Boolean, rating: Int, modifier: Modifier, onClick: () -> Unit) {
     val cover = rememberCoverOf(bookId, 200)
+    val glow = rememberCoverGlow(bookId)
     val turn by androidx.compose.animation.core.animateFloatAsState(if (open) 90f else 0f, spring(0.7f, 500f), label = "chev")
     val shape = RoundedCornerShape(24.dp)
     Row(
         modifier.fillMaxWidth().padding(top = 10.dp).bouncyClick(pressedScale = 0.97f, haptic = Haptic.Tick, onClick = onClick)
-            .liquidGlass(shape).padding(start = 12.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+            .liquidGlass(shape).coverGlow(glow).padding(start = 12.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(width = 40.dp, height = 58.dp).clip(RoundedCornerShape(5.dp)).background(Primary.copy(alpha = 0.08f))) {
@@ -333,16 +400,63 @@ private fun BookHeader(bookId: String, title: String, count: Int, open: Boolean,
         Column(Modifier.padding(start = 14.dp).weight(1f)) {
             Text(title, color = Primary, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(if (count == 1) "1 highlight" else "$count highlights", color = Secondary, fontSize = 14.sp, modifier = Modifier.padding(top = 2.dp))
+            Row(Modifier.padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(when (count) { 0 -> "No highlights"; 1 -> "1 highlight"; else -> "$count highlights" }, color = Secondary, fontSize = 14.sp)
+                if (book != null) StatusPill(book, Modifier.padding(start = 8.dp), small = true)
+            }
+            // the stars are the way into the review
+            if (book != null) Row(
+                Modifier.padding(top = 6.dp).clip(RoundedCornerShape(50))
+                    .bouncyClick(pressedScale = 0.92f, haptic = Haptic.Tick) { ReviewPrompt.open(bookId) }
+                    .padding(vertical = 2.dp, horizontal = 1.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (rating > 0) MiniStars(rating, size = 13.dp)
+                else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        repeat(5) { Icon(Line.Star, null, tint = Primary.copy(alpha = 0.3f), modifier = Modifier.size(13.dp)) }
+                    }
+                    Text("Rate", color = Primary.copy(alpha = 0.4f), fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp))
+                }
+            }
         }
         Icon(Line.Chevron, if (open) "Hide highlights" else "Show highlights", tint = Secondary,
             modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = turn })
     }
 }
 
+/** Your words about the book, first out when the book opens. */
+@Composable
+private fun ReviewCard(r: com.aniq.glassreader.data.Review, bookId: String, modifier: Modifier, onClick: () -> Unit) {
+    val glow = rememberCoverGlow(bookId)
+    val df = remember { java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault()) }
+    val shape = RoundedCornerShape(24.dp)
+    Column(
+        modifier.fillMaxWidth().bouncyClick(pressedScale = 0.98f, onClick = onClick)
+            .liquidGlass(shape).coverGlow(glow, 0.32f)
+            .padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 14.dp)
+    ) {
+        Text("Your review", color = Secondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        if (r.text.isNotBlank()) Text(
+            r.text.trim(), color = Primary, fontSize = 16.sp, lineHeight = 23.sp,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+            maxLines = 8, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp),
+        )
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                r.tags.take(3).forEach { t ->
+                    Text(t, color = Primary, fontSize = 11.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+                        modifier = Modifier.pillGlass().padding(horizontal = 9.dp, vertical = 4.dp))
+                }
+            }
+            if (r.updatedAt > 0) Text(df.format(java.util.Date(r.updatedAt)), color = Secondary, fontSize = 11.sp)
+        }
+    }
+}
+
 /** One piece on the gallery wall: clear liquid glass, the words, and where they came from. */
 @Composable
-private fun Frame(h: Highlight, bookTitle: String, modifier: Modifier, onClick: () -> Unit) {
+private fun Frame(h: Highlight, bookTitle: String, modifier: Modifier, query: String = "", showBook: Boolean = false, onClick: () -> Unit) {
     val shape = RoundedCornerShape(26.dp)
     val clip = rememberClip(h)
     Column(
@@ -356,17 +470,20 @@ private fun Frame(h: Highlight, bookTitle: String, modifier: Modifier, onClick: 
             else Box(Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(14.dp)).background(Primary.copy(alpha = 0.06f)))
         } else {
             Text(
-                h.text.trim(), color = Primary, fontSize = 16.sp, lineHeight = 22.sp,
+                marked(h.text.trim(), query), color = Primary, fontSize = 16.sp, lineHeight = 22.sp,
                 fontWeight = FontWeight.Medium, letterSpacing = (-0.2).sp,
                 maxLines = 10, overflow = TextOverflow.Ellipsis,
             )
         }
-        NoteLine(h.note, Primary, maxLines = 4)
+        NoteLine(h.note, Primary, maxLines = 4, query = query)
         Spacer(Modifier.height(16.dp))
         Box(Modifier.fillMaxWidth().height(0.6.dp).background(Primary.copy(alpha = 0.12f)))
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(h.chapter.takeIf { it.isNotBlank() && it != bookTitle } ?: bookTitle, color = Primary.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.Medium,
+            Text(
+                if (showBook) listOf(bookTitle, h.chapter.takeIf { it != bookTitle }.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
+                else h.chapter.takeIf { it.isNotBlank() && it != bookTitle } ?: bookTitle,
+                color = Primary.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.Medium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             if (h.favorite) Icon(Line.HeartFill, null, tint = Color(0xFFFF375F), modifier = Modifier.size(14.dp).padding(start = 2.dp))
         }

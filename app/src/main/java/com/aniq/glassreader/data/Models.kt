@@ -16,16 +16,21 @@ data class Book(
     val lastOpened: Long = 0L,
     val readMs: Long = 0L,       // time spent reading this book
     val chapter: String = "",    // title of the chapter the reader is in, for widgets
+    val status: Int = BookStatus.TO_READ,
+    val finishedAt: Long = 0L,   // when it was marked finished, for Year in books
+    val rank: Long = addedAt,    // order inside "To read" (lower comes first)
 ) {
     val isPdf get() = format == "pdf"
     val progress: Float
         get() = if (totalParas <= 1) 0f else (progressIndex.toFloat() / (totalParas - 1)).coerceIn(0f, 1f)
+    val isFinished get() = status == BookStatus.FINISHED
 
     fun toJson() = JSONObject().apply {
         put("id", id); put("title", title); put("author", author); put("format", format)
         put("hasCover", hasCover); put("pi", progressIndex); put("po", progressOffset)
         put("tp", totalParas); put("added", addedAt); put("opened", lastOpened)
         put("readMs", readMs); put("ch", chapter)
+        put("status", status); put("finAt", finishedAt); put("rank", rank)
     }
 
     companion object {
@@ -42,6 +47,56 @@ data class Book(
             lastOpened = o.optLong("opened", 0L),
             readMs = o.optLong("readMs", 0L),
             chapter = o.optString("ch", ""),
+        ).let { b ->
+            // books saved before statuses existed get one from how far they were read
+            val status = if (o.has("status")) o.optInt("status", BookStatus.TO_READ) else when {
+                b.progress >= 0.99f -> BookStatus.FINISHED
+                b.lastOpened > 0L -> BookStatus.READING
+                else -> BookStatus.TO_READ
+            }
+            b.copy(
+                status = status,
+                finishedAt = o.optLong("finAt", if (status == BookStatus.FINISHED) b.lastOpened else 0L),
+                rank = o.optLong("rank", b.addedAt),
+            )
+        }
+    }
+}
+
+object BookStatus {
+    const val TO_READ = 0
+    const val READING = 1
+    const val PAUSED = 2
+    const val FINISHED = 3
+    val all = listOf(TO_READ, READING, PAUSED, FINISHED)
+    fun label(s: Int) = when (s) { READING -> "Reading"; PAUSED -> "Paused"; FINISHED -> "Finished"; else -> "To read" }
+}
+
+/** Mood tags offered on the review sheet. */
+val ReviewTags = listOf("Couldn't put down", "Slow start", "Re-read", "Overrated", "Made me think", "Comfort read")
+
+/** One review per book: stars (1–5, 0 = not rated yet), mood tags and your own words. */
+data class Review(
+    val bookId: String,
+    val rating: Int = 0,
+    val tags: List<String> = emptyList(),
+    val text: String = "",
+    val updatedAt: Long = System.currentTimeMillis(),
+) {
+    val isEmpty get() = rating == 0 && tags.isEmpty() && text.isBlank()
+
+    fun toJson() = JSONObject().apply {
+        put("book", bookId); put("rating", rating); put("text", text); put("at", updatedAt)
+        put("tags", JSONArray().apply { tags.forEach { put(it) } })
+    }
+
+    companion object {
+        fun fromJson(o: JSONObject) = Review(
+            bookId = o.getString("book"),
+            rating = o.optInt("rating", 0).coerceIn(0, 5),
+            tags = o.optJSONArray("tags")?.let { a -> List(a.length()) { a.getString(it) } } ?: emptyList(),
+            text = o.optString("text", ""),
+            updatedAt = o.optLong("at", 0L),
         )
     }
 }
