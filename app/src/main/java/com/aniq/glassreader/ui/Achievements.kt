@@ -198,6 +198,7 @@ fun AchievementsScreen(haze: HazeState, onSettings: () -> Unit) {
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var detail by remember { mutableStateOf<Badge?>(null) }
+    var yearOpen by remember { mutableStateOf(false) }
     // badges earned since this screen was last opened get a little pop
     val seen = remember { Store.seenBadges }
     val fresh = remember(badges) { badges.filter { it.done && it.title !in seen }.map { it.title }.toSet() }
@@ -219,6 +220,7 @@ fun AchievementsScreen(haze: HazeState, onSettings: () -> Unit) {
         }
         item(span = { GridItemSpan(maxLineSpan) }, key = "today") { TodayCard(p) }
         item(span = { GridItemSpan(maxLineSpan) }, key = "week") { WeekCard(p) }
+        item(span = { GridItemSpan(maxLineSpan) }, key = "year") { YearCard { yearOpen = true } }
         item(span = { GridItemSpan(maxLineSpan) }, key = "badgesTitle") {
             Text("Badges", color = Primary, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp,
                 modifier = Modifier.padding(start = 4.dp, top = 12.dp))
@@ -233,6 +235,13 @@ fun AchievementsScreen(haze: HazeState, onSettings: () -> Unit) {
         var last by remember { mutableStateOf<Badge?>(null) }
         detail?.let { last = it }
         last?.let { BadgeDetail(it) { detail = null } }
+    }
+    androidx.compose.animation.AnimatedVisibility(
+        yearOpen,
+        enter = androidx.compose.animation.fadeIn(tween(220)) + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(0.85f, 380f), initialScale = 0.94f),
+        exit = androidx.compose.animation.fadeOut(tween(180)) + androidx.compose.animation.scaleOut(androidx.compose.animation.core.spring(1f, 600f), targetScale = 0.96f),
+    ) {
+        YearInBooks { yearOpen = false }
     }
     }
 }
