@@ -64,4 +64,7 @@ dependencies {
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.window:window:1.3.0")
     implementation("androidx.dynamicanimation:dynamicanimation:1.0.0")
+    // "Book with highlights" export: EPUB pages and PDF highlight annotations
+    implementation("org.jsoup:jsoup:1.18.3")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 }

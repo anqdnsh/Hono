@@ -33,12 +33,31 @@ import java.util.zip.ZipOutputStream
  * written back to disk on a background thread (debounced), so the UI never waits on I/O.
  */
 object Store {
-    private lateinit var app: Context
-    private lateinit var prefs: SharedPreferences
+    internal lateinit var app: Context
+    internal lateinit var prefs: SharedPreferences
     private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var saveJob: Job? = null
+    internal var saveJob: Job? = null
     private var widgetJob: Job? = null
     private var initialized = false
+
+    /** Re-reads everything from disk, e.g. after importing data from another phone. */
+    @Synchronized
+    internal fun reload() {
+        saveJob?.cancel()
+        contentCache.evictAll(); bitmapCache.evictAll()
+        initialized = false
+        init(app)
+        refreshWidgets()
+    }
+
+    /** Writes the library, highlights, bookmarks and reviews to disk right now. */
+    internal fun saveNow() {
+        saveJob?.cancel()
+        writeAtomic("library.json", JSONArray().apply { _books.value.forEach { put(it.toJson()) } }.toString())
+        writeAtomic("highlights.json", JSONArray().apply { _highlights.value.forEach { put(it.toJson()) } }.toString())
+        writeAtomic("bookmarks.json", JSONArray().apply { _bookmarks.value.forEach { put(it.toJson()) } }.toString())
+        writeAtomic("reviews.json", JSONArray().apply { _reviews.value.values.forEach { put(it.toJson()) } }.toString())
+    }
 
     private val _books = MutableStateFlow<List<Book>>(emptyList())
     val books: StateFlow<List<Book>> = _books
@@ -60,14 +79,14 @@ object Store {
     private val _wallpaperBlur = MutableStateFlow<Bitmap?>(null)
     val wallpaperBlur: StateFlow<Bitmap?> = _wallpaperBlur
 
-    private val bitmapCache = object : LruCache<String, Bitmap>(16 * 1024 * 1024) {
+    internal val bitmapCache = object : LruCache<String, Bitmap>(16 * 1024 * 1024) {
         override fun sizeOf(key: String, value: Bitmap) = value.allocationByteCount
     }
-    private val contentCache = LruCache<String, BookContent>(2)
+    internal val contentCache = LruCache<String, BookContent>(2)
 
     val booksDir: File get() = File(app.filesDir, "books").apply { mkdirs() }
-    private val cacheDir: File get() = File(app.filesDir, "parsed").apply { mkdirs() }
-    private val coversDir: File get() = File(app.filesDir, "covers").apply { mkdirs() }
+    internal val cacheDir: File get() = File(app.filesDir, "parsed").apply { mkdirs() }
+    internal val coversDir: File get() = File(app.filesDir, "covers").apply { mkdirs() }
     val clipsDir: File get() = File(app.filesDir, "clips").apply { mkdirs() }
 
     @Synchronized
@@ -123,7 +142,7 @@ object Store {
         }
     }
 
-    private fun readArray(name: String): List<org.json.JSONObject> {
+    internal fun readArray(name: String): List<org.json.JSONObject> {
         val f = File(app.filesDir, name)
         if (!f.exists()) return emptyList()
         return try {
@@ -132,7 +151,7 @@ object Store {
         } catch (e: Exception) { emptyList() }
     }
 
-    private fun writeAtomic(name: String, text: String) {
+    internal fun writeAtomic(name: String, text: String) {
         val tmp = File(app.filesDir, "$name.tmp")
         tmp.writeText(text)
         tmp.renameTo(File(app.filesDir, name))
