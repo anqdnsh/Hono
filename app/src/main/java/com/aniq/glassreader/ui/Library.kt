@@ -1,6 +1,11 @@
 package com.aniq.glassreader.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.foundation.border
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.drawBehind
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.Animatable
@@ -104,6 +109,7 @@ fun LibraryScreen(
     onSettings: () -> Unit,
     onImport: () -> Unit,
     onOpenAt: (String, Int, Int) -> Unit = { id, _, _ -> onOpen(id) },
+    onGoals: () -> Unit = {},
 ) {
     val books by Store.books.collectAsState()
     val current = remember(books) { Store.currentBook() }
@@ -120,6 +126,8 @@ fun LibraryScreen(
     val byId = remember(books) { books.associateBy { it.id } }
     var menuFor by remember { mutableStateOf<Book?>(null) }
     var confirmRemove by remember { mutableStateOf<Book?>(null) }
+    var exportFor by remember { mutableStateOf<Book?>(null) }
+    var exportMarked by remember { mutableStateOf(true) }
     var finishedOpen by remember { mutableStateOf(true) }
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -232,7 +240,7 @@ fun LibraryScreen(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
-            item(span = { GridItemSpan(maxLineSpan) }, key = "title") {
+            item(span = { GridItemSpan(maxLineSpan) }, key = "title") { Column {
                 SearchableTitle("Library", haze, searching, query, "Search title or author",
                     onSearching = { searching = it }, onQuery = { query = it }) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -240,7 +248,9 @@ fun LibraryScreen(
                         GlassCircle(Line.Gear, "Settings", haze, size = 40.dp, onClick = onSettings)
                     }
                 }
-            }
+                // with no book in progress there's no card, so the flame sits under the title instead
+                if (!searching && current == null && books.isNotEmpty()) GoalFlame(Modifier.padding(top = 2.dp), onClick = onGoals)
+            } }
 
             if (searching && query.isNotBlank()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "foundCount") {
@@ -256,7 +266,7 @@ fun LibraryScreen(
                 if (current != null) {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "recentTitle") { SectionTitle("Continue Reading") }
                     item(span = { GridItemSpan(maxLineSpan) }, key = "continueCard") {
-                        ContinueCard(current, onOpen = onOpen, onOpenAt = onOpenAt, onMore = { menuFor = current })
+                        ContinueCard(current, onOpen = onOpen, onOpenAt = onOpenAt, onMore = { menuFor = current }, onGoals = onGoals)
                     }
                 }
                 if (inProgress.isNotEmpty()) {
@@ -299,15 +309,42 @@ fun LibraryScreen(
                     Cover(b, Modifier.width(44.dp).aspectRatio(0.67f))
                     Column(Modifier.padding(start = 14.dp).weight(1f)) {
                         Text(b.title, color = Primary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(listOf(b.author, progressLabel(b)).filter { it.isNotBlank() }.joinToString(" · "), color = Secondary, fontSize = 13.sp, maxLines = 1)
+                        Text(listOf(b.author, BookStatus.label(b.status), if (b.status == BookStatus.TO_READ) "" else "${(b.progress * 100).toInt()}%")
+                            .filter { it.isNotBlank() }.joinToString(" · "), color = Secondary, fontSize = 13.sp, maxLines = 1)
                     }
                 }
                 Spacer(Modifier.height(14.dp))
-                SheetAction("Read", null) { menuFor = null; onOpen(b.id) }
-                SheetAction("Export highlights", ".md") { onExport(ExportKind.BookHighlights, b); menuFor = null }
-                SheetAction("Export book file", ".${b.format}") { onExport(ExportKind.BookFile, b); menuFor = null }
-                SheetAction("Export book with highlights", ".zip") { onExport(ExportKind.Bundle, b); menuFor = null }
+                SheetAction("Rate and review", null) { menuFor = null; ReviewPrompt.open(b.id) }
+                SheetAction("Export", null) { exportFor = b; exportMarked = true; menuFor = null }
                 SheetAction("Remove from Library", null, Color(0xFFFF453A), haptic = Haptic.Reject) { confirmRemove = b; menuFor = null }
+            }
+        }
+
+        // Export: the original file, or a copy with your highlights marked in the pages
+        ActionSheet(visible = exportFor != null, haze = haze, onDismiss = { exportFor = null }) {
+            var shown by remember { mutableStateOf<Book?>(null) }
+            exportFor?.let { shown = it }
+            val b = shown
+            if (b != null) {
+                Text("Export ${b.title}", color = Primary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp))
+                Spacer(Modifier.height(12.dp))
+                val count = Store.highlights.collectAsState().value.count { it.bookId == b.id }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ExportOption(b, marked = false, selected = !exportMarked, title = "Book only",
+                        sub = "The original ${b.format.uppercase()}, untouched", modifier = Modifier.weight(1f)) { exportMarked = false }
+                    ExportOption(b, marked = true, selected = exportMarked, title = "Book with highlights",
+                        sub = if (count == 0) "No highlights yet" else "$count highlight${if (count == 1) "" else "s"} marked in the pages",
+                        modifier = Modifier.weight(1f)) { exportMarked = true }
+                }
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    "Export", color = AppBg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().bouncyClick(pressedScale = 0.96f) {
+                        onExport(if (exportMarked) ExportKind.BookMarked else ExportKind.BookFile, b); exportFor = null
+                    }.clip(RoundedCornerShape(50)).background(Primary).padding(vertical = 14.dp),
+                )
+                Spacer(Modifier.height(10.dp))
             }
         }
 
@@ -327,7 +364,7 @@ fun LibraryScreen(
 
 /** Widget-style card: where you are in the current book, plus its latest highlights. */
 @Composable
-private fun ContinueCard(book: Book, onOpen: (String) -> Unit, onOpenAt: (String, Int, Int) -> Unit, onMore: () -> Unit) {
+private fun ContinueCard(book: Book, onOpen: (String) -> Unit, onOpenAt: (String, Int, Int) -> Unit, onMore: () -> Unit, onGoals: () -> Unit = {}) {
     val all by Store.highlights.collectAsState()
     val latest = remember(all, book.id) { all.filter { it.bookId == book.id }.sortedByDescending { it.createdAt }.take(2) }
     val count = remember(all, book.id) { all.count { it.bookId == book.id } }
@@ -347,6 +384,7 @@ private fun ContinueCard(book: Book, onOpen: (String) -> Unit, onOpenAt: (String
                 // total time read, top-right
                 Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.End) {
+                    GoalFlame(Modifier.padding(end = 6.dp), onClick = onGoals)
                     Row(
                         Modifier.clip(RoundedCornerShape(50)).background(Primary.copy(alpha = 0.10f))
                             .padding(horizontal = 10.dp, vertical = 5.dp),
@@ -533,6 +571,140 @@ private fun BookCard(
                 contentAlignment = Alignment.Center,
             ) { Icon(Line.More, "More", tint = Secondary, modifier = Modifier.size(20.dp)) }
         }
+    }
+}
+
+/**
+ * Your streak, with the number inside a flame. Before today's goal the flame is grey and
+ * today's minutes sit beside it ("12/20 min"). Once you hit the goal the minutes fade away and
+ * the flame lights up orange, glows once and flickers. Tap for Goals.
+ */
+@Composable
+private fun GoalFlame(modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val p = rememberProgress()
+    val reached = p.todayMin >= p.goalMin
+    val flame = Color(0xFFFF6B35)
+    val lit by animateFloatAsState(if (reached) 1f else 0f, spring(0.8f, 200f), label = "lit")
+    val pulse = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(reached) { if (reached) { pulse.snapTo(1f); pulse.animateTo(0f, tween(900)) } }
+    val flicker by androidx.compose.animation.core.rememberInfiniteTransition(label = "flame").animateFloat(
+        0.94f, 1.06f,
+        androidx.compose.animation.core.infiniteRepeatable(tween(520), androidx.compose.animation.core.RepeatMode.Reverse), label = "flicker",
+    )
+    val tint = androidx.compose.ui.graphics.lerp(Primary.copy(alpha = 0.28f), flame, lit)
+    Row(
+        modifier.clip(RoundedCornerShape(50))
+            .bouncyClick(pressedScale = 0.88f, haptic = Haptic.Tick, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(width = 22.dp, height = 26.dp)
+                .drawBehind { if (pulse.value > 0f) drawCircle(flame.copy(alpha = 0.4f * pulse.value), radius = size.height * 0.75f) },
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            Icon(Line.Flame, if (reached) "Goal reached" else "Daily goal", tint = tint, modifier = Modifier.fillMaxSize().graphicsLayer {
+                val s = if (reached) flicker else 1f
+                scaleX = s; scaleY = s; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
+            })
+            Text("${p.streak}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 4.dp))
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            !reached,
+            enter = fadeIn(tween(200)) + androidx.compose.animation.expandHorizontally(spring(0.85f, 400f)),
+            exit = fadeOut(tween(220)) + androidx.compose.animation.shrinkHorizontally(spring(0.9f, 300f)),
+        ) {
+            Text("${p.todayMin}/${p.goalMin} min", color = Secondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, modifier = Modifier.padding(start = 5.dp))
+        }
+    }
+}
+
+/** One export choice: a little page from the book, plain or with your highlights marked. */
+@Composable
+private fun ExportOption(book: Book, marked: Boolean, selected: Boolean, title: String, sub: String, modifier: Modifier, onClick: () -> Unit) {
+    val ring by animateFloatAsState(if (selected) 1f else 0f, spring(0.8f, 500f), label = "pick")
+    Column(
+        modifier.bouncyClick(pressedScale = 0.96f, haptic = Haptic.Tick, onClick = onClick)
+            .clip(RoundedCornerShape(20.dp)).background(Primary.copy(alpha = 0.05f + 0.05f * ring))
+            .border((0.6f + 0.6f * ring).dp, Primary.copy(alpha = 0.10f + 0.5f * ring), RoundedCornerShape(20.dp))
+            .padding(10.dp)
+    ) {
+        PagePreview(book, marked, Modifier.fillMaxWidth())
+        Text(title, color = Primary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp))
+        Text(sub, color = Secondary, fontSize = 11.sp, lineHeight = 14.sp, modifier = Modifier.padding(top = 2.dp))
+    }
+}
+
+/** A real page from the book, as a small paper preview. */
+@Composable
+private fun PagePreview(book: Book, marked: Boolean, modifier: Modifier) {
+    val all by Store.highlights.collectAsState()
+    val hs = remember(all, book.id) { all.filter { it.bookId == book.id }.sortedWith(compareBy({ it.para }, { it.start })) }
+    val paper = Color(0xFFFBF8F1)
+    val shape = RoundedCornerShape(6.dp)
+    if (book.isPdf) {
+        val page = hs.firstOrNull()?.para ?: 0
+        val bmp by produceState<ImageBitmap?>(null, book.id, page) {
+            value = withContext(Dispatchers.IO) {
+                runCatching {
+                    android.os.ParcelFileDescriptor.open(Store.bookFile(book), android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+                        android.graphics.pdf.PdfRenderer(pfd).use { r ->
+                            r.openPage(page.coerceIn(0, r.pageCount - 1)).use { p ->
+                                val w = 360; val h = (w * p.height.toFloat() / p.width).toInt().coerceAtLeast(1)
+                                val bm = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+                                bm.eraseColor(android.graphics.Color.WHITE)
+                                p.render(bm, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                bm.asImageBitmap()
+                            }
+                        }
+                    }
+                }.getOrNull()
+            }
+        }
+        Box(modifier.aspectRatio(0.72f).shadow(6.dp, shape).clip(shape).background(Color.White)) {
+            bmp?.let { img ->
+                Image(img, null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().drawWithContent {
+                    drawContent()
+                    if (!marked) return@drawWithContent
+                    val sc = minOf(size.width / img.width, size.height / img.height)
+                    val iw = img.width * sc; val ih = img.height * sc
+                    val ox = (size.width - iw) / 2; val oy = (size.height - ih) / 2
+                    hs.filter { it.para == page }.forEach { h ->
+                        val r = h.rect ?: return@forEach
+                        var k = 0
+                        while (k + 3 < r.size) {
+                            drawRect(HighlightColors[h.color.coerceIn(0, HighlightColors.lastIndex)].copy(alpha = 0.45f),
+                                topLeft = Offset(ox + r[k] * iw, oy + r[k + 1] * ih),
+                                size = androidx.compose.ui.geometry.Size((r[k + 2] - r[k]) * iw, (r[k + 3] - r[k + 1]) * ih))
+                            k += 4
+                        }
+                    }
+                })
+            }
+        }
+        return
+    }
+    val content by produceState<com.aniq.glassreader.data.BookContent?>(null, book.id) {
+        value = runCatching { Store.content(book) }.getOrNull()
+    }
+    Box(modifier.aspectRatio(0.72f).shadow(6.dp, shape).clip(shape).background(paper).padding(horizontal = 8.dp, vertical = 9.dp)) {
+        val c = content ?: return@Box
+        val first = hs.firstOrNull()?.para ?: c.paras.indexOfFirst { !it.heading && it.text.length > 80 }.coerceAtLeast(0)
+        val text = androidx.compose.ui.text.buildAnnotatedString {
+            for (i in first until minOf(c.paras.size, first + 5)) {
+                val p = c.paras[i]
+                val base = length
+                append(p.text)
+                if (marked) hs.filter { it.para == i }.forEach { h ->
+                    addStyle(androidx.compose.ui.text.SpanStyle(background = HighlightColors[h.color.coerceIn(0, HighlightColors.lastIndex)].copy(alpha = 0.5f)),
+                        base + h.start.coerceIn(0, p.text.length), base + h.end.coerceIn(0, p.text.length))
+                }
+                append("\n")
+            }
+        }
+        Text(text, color = Color(0xFF2B2722), fontSize = 7.sp, lineHeight = 10.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+            overflow = TextOverflow.Clip)
     }
 }
 

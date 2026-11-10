@@ -68,6 +68,18 @@ object Line {
     val Chevron by lazy { stroke("chev", "M9.5,6L15.5,12L9.5,18", width = 2f) }
     val Paragraph by lazy { stroke("para", "M4.5,6H19.5", "M4.5,10H19.5", "M4.5,14H19.5", "M4.5,18H13") }
     val Search by lazy { stroke("search", "M10.6,4.4A6.2,6.2 0,1 1,10.59,4.4Z", "M15.3,15.3L19.8,19.8", width = 2f) }
+    val Undo by lazy { stroke("undo", "M9,14.5L4.5,10L9,5.5", "M4.5,10H14.5A5,5 0,0 1,14.5,20H11", width = 2f) }
+    private const val FLAME = "M12.2,2.8C12.6,6 16.8,8.3 17.6,12.6C18.4,17 15.4,20.8 11.9,20.8C8.4,20.8 5.8,18.1 6.1,14.6C6.3,12.3 7.6,10.8 8.6,9.9C8.7,11.4 9.4,12.6 10.5,13.1C10.2,9.4 11.4,5.4 12.2,2.8Z"
+    val Flame by lazy { filled("flame", FLAME) }
+    val FlameLine by lazy { stroke("flameLine", FLAME) }
+    val TextSize by lazy { stroke("textSize", "M3.8,18.5L8.5,5.8L13.2,18.5", "M5.6,14H11.4", "M14.6,18.5L17.6,10.8L20.6,18.5", "M15.6,16H19.6") }
+    val Marker by lazy { stroke("marker", "M14.8,4.6L19.4,9.2L10.2,18.4H5.6V13.8Z", "M12.6,6.8L17.2,11.4", "M4.5,20.5H19.5") }
+    val Page by lazy { stroke("page", "M6.8,3.6H14L18.4,8V20.4H6.8Z", "M14,3.6V8H18.4", "M9.4,12.6H15.8", "M9.4,16H14") }
+    val Moon by lazy { stroke("moon", "M19.4,14.6A8,8 0,1 1,9.4,4.6A6.4,6.4 0,0 0,19.4,14.6Z") }
+    val Phone by lazy { stroke("phone", "M7.6,3.4H16.4C17,3.4 17.4,3.8 17.4,4.4V19.6C17.4,20.2 17,20.6 16.4,20.6H7.6C7,20.6 6.6,20.2 6.6,19.6V4.4C6.6,3.8 7,3.4 7.6,3.4Z", "M11,17.6H13") }
+    val Wave by lazy { stroke("wave", "M3.4,12H6.2L8.2,7.2L11.2,16.8L13.6,9.2L15.6,14.2L17,12H20.6") }
+    val Upload by lazy { stroke("upload", "M12,15V4.6", "M7.8,8.8L12,4.6L16.2,8.8", "M5,14.6V19.4H19V14.6") }
+    val Download by lazy { stroke("download", "M12,4.6V15", "M7.8,10.8L12,15L16.2,10.8", "M5,14.6V19.4H19V14.6") }
     val Check by lazy { stroke("check", "M5.5,12.5L10,17L18.5,7.5", width = 2f) }
 
     private const val STAR =

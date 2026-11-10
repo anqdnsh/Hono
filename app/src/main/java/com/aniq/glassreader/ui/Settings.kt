@@ -1,5 +1,11 @@
 package com.aniq.glassreader.ui
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.AnimatedContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -62,18 +68,32 @@ private val UiTheme: ReaderTheme get() = ReaderTheme("ui", Card, Primary, Second
 private val Group: Color get() = if (UiMode.dark) Color(0xFF151517) else Color(0xFFF2F2F7)
 
 @Composable
-fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (ExportKind, Book?) -> Unit, onBack: () -> Unit) {
+fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (ExportKind, Book?) -> Unit, onBack: () -> Unit, onOpen: (String) -> Unit = {}) {
     val s by Store.settings.collectAsState()
     val books by Store.books.collectAsState()
     val all by Store.highlights.collectAsState()
     val hasWall = Store.wallpaper.collectAsState().value != null
     var remove by remember { mutableStateOf<Book?>(null) }
+    // null = the main list; otherwise one of the group pages
+    var page by remember { mutableStateOf<String?>(null) }
+    val data = rememberDataTransfer(onOpen = onOpen)
+    BackHandler(enabled = page != null) { page = null }
     val haptics = rememberHaptics()
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val set: ((ReaderSettings) -> ReaderSettings) -> Unit = { Store.updateSettings(it) }
 
     Box(Modifier.fillMaxSize()) {
+        AnimatedContent(
+            targetState = page,
+            transitionSpec = {
+                if (targetState != null) (slideInHorizontally(spring(0.9f, 420f)) { it / 3 } + fadeIn(tween(180))) togetherWith
+                    (slideOutHorizontally(spring(0.95f, 500f)) { -it / 5 } + fadeOut(tween(140)))
+                else (slideInHorizontally(spring(0.9f, 420f)) { -it / 5 } + fadeIn(tween(180))) togetherWith
+                    (slideOutHorizontally(spring(0.95f, 500f)) { it / 3 } + fadeOut(tween(140)))
+            },
+            label = "settingsPage",
+        ) { pg ->
         LazyColumn(
             Modifier.fillMaxSize().glassBackdrop().hazeSource(haze),
             contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = top + 12.dp, bottom = bottom + 100.dp),
@@ -81,14 +101,61 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
         ) {
             item {
                 Row(Modifier.widthIn(max = 640.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    GlassCircle(Line.Back, "Back", haze, size = 40.dp, onClick = onBack)
+                    GlassCircle(Line.Back, "Back", haze, size = 40.dp, onClick = { if (pg == null) onBack() else page = null })
                     Spacer(Modifier.width(14.dp))
-                    Box(Modifier.weight(1f)) { ScreenTitle("Settings") }
+                    Box(Modifier.weight(1f)) { ScreenTitle(pageTitle(pg)) }
                 }
             }
 
-            item {
-                Section("Reading") {
+            if (pg == null) item {
+                val font = if (s.serif) "Serif" else "Inter"
+                val look = listOf("System", "Light", "Dark")[s.uiMode.coerceIn(0, 2)] + (if (hasWall) " · Wallpaper" else "") + (if (s.mono) " · B&W" else "")
+                MenuGroup("Reading") {
+                    MenuRow(Line.TextSize, "Text and page", "$font · ${s.fontSize.roundToInt()}") { page = "text" }
+                    Line(inset = 60.dp)
+                    MenuRow(Line.Marker, "Highlight tools", if (s.sideTools) "Side · ${if (s.toolsLeft) "Left" else "Right"}" else "Bottom bar") { page = "tools" }
+                    Line(inset = 60.dp)
+                    MenuRow(Line.Page, "PDF pages", listOf("Original", "Match page", "Night")[s.pdfMode.coerceIn(0, 2)]) { page = "pdf" }
+                    Line(inset = 60.dp)
+                    MenuRow(Line.FlameLine, "Daily goal", "${s.dailyGoalMin} min") { page = "goal" }
+                }
+                MenuGroup("App") {
+                    MenuRow(Line.Moon, "Appearance", look) { page = "look" }
+                    Line(inset = 60.dp)
+                    MenuRow(Line.Phone, "Outer screen", if (s.coverScreen) "On" else "Off") { page = "outer" }
+                    Line(inset = 60.dp)
+                    MenuRow(Line.Wave, "Haptics", if (!s.haptics) "Off" else listOf("Light", "Medium", "Strong")[s.hapticLevel.coerceIn(0, 2)]) { page = "haptics" }
+                }
+                MenuGroup("Library") {
+                    MenuRow(Line.Books, "Manage books", "${books.size}") { page = "books" }
+                    Line(inset = 60.dp)
+                    MenuRow(Line.Upload, "Export data", "", sub = "Everything, as one file for a new phone") { data.startExport() }
+                    Line(inset = 60.dp)
+                    MenuRow(Line.Download, "Import data", "", sub = "Open a Hono export file") { data.startImport() }
+                }
+                val last = com.aniq.glassreader.data.Backup.lastExport
+                Text(
+                    "Exports include your books, highlights, notes, reviews, reading progress, goals and settings." +
+                        if (last > 0) " Last export: ${java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(last))}." else "",
+                    color = Tertiary, fontSize = 12.sp, lineHeight = 16.sp,
+                    modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                )
+            }
+
+            if (pg == "goal") item {
+                Section("Daily goal", "How many minutes you want to read each day. Your streak grows each day you reach it.") {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Minutes a day", color = Primary, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                        GoalStep("−") { set { it.copy(dailyGoalMin = (it.dailyGoalMin - 5).coerceAtLeast(5)) } }
+                        Text("${s.dailyGoalMin}", color = Primary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                            modifier = Modifier.width(56.dp))
+                        GoalStep("+") { set { it.copy(dailyGoalMin = (it.dailyGoalMin + 5).coerceAtMost(180)) } }
+                    }
+                }
+            }
+
+            if (pg == "text") item {
+                Section("Text and page") {
                     Pad {
                         Label("Background")
                         BackgroundPicker(s, Primary, onNeedWallpaper = onPickWallpaper)
@@ -125,7 +192,29 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
                 }
             }
 
-            item {
+            if (pg == "tools") item {
+                Section("Highlight tools", "Glass clarity sets how clear or frosted the side circles are.") {
+                    Pad {
+                        Label("Position")
+                        Segmented(listOf("Bottom bar", "Side circles"), if (s.sideTools) 1 else 0, { i -> set { it.copy(sideTools = i == 1) } })
+                        Text(
+                            if (s.sideTools) "Clear glass circles beside the text you select."
+                            else "A glass bar along the bottom when you select text.",
+                            color = Secondary, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp),
+                        )
+                        if (s.sideTools) {
+                            Spacer(Modifier.height(10.dp))
+                            Segmented(listOf("Left", "Right"), if (s.toolsLeft) 0 else 1, { i -> set { it.copy(toolsLeft = i == 0) } })
+                        }
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    if (s.sideTools) Pad {
+                        LabeledSlider("Glass clarity", "${(s.glassClarity * 100).roundToInt()}%", s.glassClarity, 0f..1f, UiTheme) { v -> set { it.copy(glassClarity = v) } }
+                    }
+                }
+            }
+
+            if (pg == "pdf") item {
                 Section("PDF pages", "Night inverts pages for reading in the dark. Match page blends pages into your background.") {
                     Pad {
                         Spacer(Modifier.height(10.dp))
@@ -135,7 +224,7 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
                 }
             }
 
-            item {
+            if (pg == "look") item {
                 Section("Appearance") {
                     Pad {
                         Label("Theme")
@@ -157,7 +246,7 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
                 }
             }
 
-            item {
+            if (pg == "outer") item {
                 val coverOk by com.aniq.glassreader.CoverDisplay.supported.collectAsState()
                 Section(
                     "Outer screen",
@@ -168,7 +257,7 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
                 }
             }
 
-            item {
+            if (pg == "haptics") item {
                 Section("Haptics") {
                     Pad { ToggleRow("Haptic feedback", "Feel page turns, highlights and controls", s.haptics, UiTheme) { v -> set { it.copy(haptics = v) } } }
                     AnimatedVisibility(s.haptics, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
@@ -184,12 +273,8 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
                 }
             }
 
-            item {
+            if (pg == "books") item {
                 Section("Books", if (books.isEmpty()) null else "Removing a book also deletes its highlights.") {
-                    if (all.isNotEmpty()) {
-                        NavRow("Export all highlights", ".md") { onExport(ExportKind.AllHighlights, null) }
-                        if (books.isNotEmpty()) Line()
-                    }
                     if (books.isEmpty()) {
                         Text("No books yet", color = Secondary, fontSize = 15.sp, modifier = Modifier.padding(16.dp))
                     }
@@ -210,10 +295,12 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
                 }
             }
 
-            item {
+            if (pg == null) item {
                 Text("Hono", color = Tertiary, fontSize = 13.sp, fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(top = 26.dp), textAlign = TextAlign.Center)
             }
+        }
+
         }
 
         ActionSheet(visible = remove != null, haze = haze, onDismiss = { remove = null }) {
@@ -227,7 +314,53 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
             SheetAction("Remove", null, Color(0xFFFF453A), haptic = Haptic.Reject) { shown?.let { Store.delete(it.id) }; remove = null }
             SheetAction("Cancel", null) { remove = null }
         }
+
+        DataTransferSheets(data, haze)
     }
+}
+
+private fun pageTitle(p: String?) = when (p) {
+    "text" -> "Text and page"; "tools" -> "Highlight tools"; "pdf" -> "PDF pages"; "goal" -> "Daily goal"
+    "look" -> "Appearance"; "outer" -> "Outer screen"; "haptics" -> "Haptics"; "books" -> "Manage books"
+    else -> "Settings"
+}
+
+/** A group on the main settings page: grey label, then a card of rows. */
+@Composable
+private fun MenuGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(top = 24.dp)) {
+        Text(title, color = Secondary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 16.dp, bottom = 8.dp))
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Group).hairline(RoundedCornerShape(22.dp)), content = content)
+    }
+}
+
+/** A row on the main page: a thin line icon in a small clear-glass circle, the name, its current value and a chevron. */
+@Composable
+private fun MenuRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, value: String, sub: String? = null, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().bouncyClick(pressedScale = 0.98f, onClick = onClick).padding(start = 12.dp, end = 16.dp, top = 11.dp, bottom = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(34.dp).pillGlass(androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = Primary, modifier = Modifier.size(18.dp))
+        }
+        Column(Modifier.padding(start = 14.dp).weight(1f)) {
+            Text(title, color = Primary, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+            if (sub != null) Text(sub, color = Secondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (value.isNotEmpty()) Text(value, color = Secondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 8.dp).widthIn(max = 170.dp))
+        Icon(Line.Chevron, null, tint = Tertiary, modifier = Modifier.padding(start = 6.dp).size(16.dp))
+    }
+}
+
+@Composable
+private fun GoalStep(label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.size(34.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Primary.copy(alpha = 0.08f))
+            .bouncyClick(pressedScale = 0.85f, haptic = Haptic.Tick, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, color = Primary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
 }
 
 @Composable
