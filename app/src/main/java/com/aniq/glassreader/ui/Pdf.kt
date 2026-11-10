@@ -780,7 +780,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
             Row(Modifier.fillMaxWidth().padding(top = topInset + 8.dp, start = 14.dp, end = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                GlassCircle(Line.Back, "Back", haze, tint = theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light, onClick = onBack)
+                GlassCircle(Line.Back, "Back", haze, tint = theme.text, glassTint = theme.glassTint, glossy = true, base = theme.bg, light = theme.light, onClick = onBack)
                 // balances the two buttons on the right, so the title sits in the true centre of the screen
                 androidx.compose.foundation.layout.Spacer(Modifier.width(56.dp))
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -788,14 +788,14 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                         book.title, color = theme.text, fontFamily = Inter, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.widthIn(max = 240.dp)
-                            .glass(haze, RoundedCornerShape(50), theme.glassTint, theme.bg, light = theme.light, floating = true)
+                            .depthShadow(RoundedCornerShape(50), theme.light).glass(haze, RoundedCornerShape(50), theme.glassTint, theme.bg, light = theme.light, floating = true).gloss(RoundedCornerShape(50), theme.light)
                             .padding(horizontal = 18.dp, vertical = 12.dp),
                     )
                 }
                 GlassCircle(if (markHere != null) Line.BookmarkFill else Line.Bookmark, "Bookmark this page", haze,
-                    tint = if (markHere != null) Color(0xFFFF9F0A) else theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light) { toggleBookmark() }
+                    tint = if (markHere != null) Color(0xFFFF9F0A) else theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light, glossy = true) { toggleBookmark() }
                 androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
-                GlassCircle(Line.Quote, "Highlights and bookmarks", haze, tint = theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light) { sheet = 2 }
+                GlassCircle(Line.Quote, "Highlights and bookmarks", haze, tint = theme.text, glassTint = theme.glassTint, glossy = true, base = theme.bg, light = theme.light) { sheet = 2 }
             }
         }
 
@@ -810,7 +810,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             val shown = if (scrub >= 0) scrub else page.toFloat() / max(1, count - 1)
             Row(
                 Modifier.padding(start = 14.dp, end = 14.dp, bottom = bottomInset + 14.dp).widthIn(max = 620.dp).fillMaxWidth()
-                    .glass(haze, RoundedCornerShape(50), theme.glassTint, theme.bg, light = theme.light, floating = true)
+                    .depthShadow(RoundedCornerShape(50), theme.light).glass(haze, RoundedCornerShape(50), theme.glassTint, theme.bg, light = theme.light, floating = true).gloss(RoundedCornerShape(50), theme.light)
                     .padding(horizontal = 14.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -898,7 +898,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             BarIcon(Line.Trash, theme) { UndoState.offer(h?.let { Store.removeHighlight(it.id) }); haptics.play(Haptic.Reject); active = null }
         }
 
-        UndoBubble(haze, theme, bottomInset)
+        UndoBubble(haze, theme, bottomInset, toolsShowing = region != null || tsel != null || activeLive != null)
         // side tools sit beside a framed region; text selections and clips use the middle of the screen
         LaunchedEffect(region, tsel, active) { ToolAnchor.y = region?.center?.y ?: Float.NaN }
 
@@ -975,7 +975,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             var last by remember { mutableStateOf("") }
             toast?.let { last = it }
             Text(last, color = theme.text, fontFamily = Inter, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                modifier = Modifier.glass(haze, RoundedCornerShape(50), theme.glassTint, theme.bg, light = theme.light, floating = true)
+                modifier = Modifier.depthShadow(RoundedCornerShape(50), theme.light).glass(haze, RoundedCornerShape(50), theme.glassTint, theme.bg, light = theme.light, floating = true).gloss(RoundedCornerShape(50), theme.light)
                     .padding(horizontal = 18.dp, vertical = 10.dp))
         }
     }

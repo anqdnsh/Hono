@@ -717,13 +717,13 @@ private fun ReaderBody(
                 Modifier.fillMaxWidth().padding(top = topInset + 8.dp, start = 14.dp, end = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                GlassCircle(Line.Back, "Back", haze, tint = theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light, onClick = onBack)
+                GlassCircle(Line.Back, "Back", haze, tint = theme.text, glassTint = theme.glassTint, glossy = true, base = theme.bg, light = theme.light, onClick = onBack)
                 // balances the two buttons on the right, so the title sits in the true centre of the screen
                 Spacer(Modifier.width(56.dp))
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     Column(
                         Modifier
-                            .glass(haze, RoundedCornerShape(50), theme.glassTint, theme.bg, light = theme.light, floating = true)
+                            .depthShadow(RoundedCornerShape(50), theme.light).glass(haze, RoundedCornerShape(50), theme.glassTint, theme.bg, light = theme.light, floating = true).gloss(RoundedCornerShape(50), theme.light)
                             .padding(horizontal = 18.dp, vertical = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -734,9 +734,9 @@ private fun ReaderBody(
                     }
                 }
                 GlassCircle(if (markHere != null) Line.BookmarkFill else Line.Bookmark, "Bookmark this page", haze,
-                    tint = if (markHere != null) Color(0xFFFF9F0A) else theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light) { toggleBookmark() }
+                    tint = if (markHere != null) Color(0xFFFF9F0A) else theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light, glossy = true) { toggleBookmark() }
                 Spacer(Modifier.width(10.dp))
-                GlassCircle(Line.Quote, "Highlights and bookmarks", haze, tint = theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light) { sheet = Sheet.Marks }
+                GlassCircle(Line.Quote, "Highlights and bookmarks", haze, tint = theme.text, glassTint = theme.glassTint, glossy = true, base = theme.bg, light = theme.light) { sheet = Sheet.Marks }
             }
         }
 
@@ -754,7 +754,7 @@ private fun ReaderBody(
                     .padding(start = 14.dp, end = 14.dp, bottom = bottomInset + 14.dp)
                     .widthIn(max = 620.dp)
                     .fillMaxWidth()
-                    .glass(haze, RoundedCornerShape(50), theme.glassTint, theme.bg, light = theme.light, floating = true)
+                    .depthShadow(RoundedCornerShape(50), theme.light).glass(haze, RoundedCornerShape(50), theme.glassTint, theme.bg, light = theme.light, floating = true).gloss(RoundedCornerShape(50), theme.light)
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -817,7 +817,7 @@ private fun ReaderBody(
             BarIcon(Line.Trash, theme) { UndoState.offer(h?.let { Store.removeHighlight(it.id) }); haptics.play(Haptic.Reject); active = null }
         }
 
-        UndoBubble(haze, theme, bottomInset)
+        UndoBubble(haze, theme, bottomInset, toolsShowing = selection != null || activeLive != null)
 
         // ---- end of the book ----
         val storyEnd = remember(c) { endOfStory(c) }
@@ -884,7 +884,7 @@ private fun ReaderBody(
             Text(
                 last, color = theme.text, fontFamily = Inter, fontSize = 13.sp, fontWeight = FontWeight.Medium,
                 modifier = Modifier
-                    .glass(haze, RoundedCornerShape(50), theme.glassTint, theme.bg, light = theme.light, floating = true)
+                    .depthShadow(RoundedCornerShape(50), theme.light).glass(haze, RoundedCornerShape(50), theme.glassTint, theme.bg, light = theme.light, floating = true).gloss(RoundedCornerShape(50), theme.light)
                     .padding(horizontal = 18.dp, vertical = 10.dp),
             )
         }

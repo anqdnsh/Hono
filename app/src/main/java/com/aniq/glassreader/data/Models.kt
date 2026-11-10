@@ -198,7 +198,7 @@ data class ReaderSettings(
     val dailyGoalMin: Int = 20,
     val sideTools: Boolean = false,  // highlight tools as glass circles at the side instead of a bottom bar
     val toolsLeft: Boolean = false,  // which side, for left-handed reading
-    val glassClarity: Float = 0.6f,  // 0 frosted .. 1 clear, for the side circles
+    val glassClarity: Float = 0.85f,  // 0 frosted .. 1 clear, for the side circles
 )
 
 /** Para styles are packed triples: start, end, type (1 = italic, 2 = bold). */
