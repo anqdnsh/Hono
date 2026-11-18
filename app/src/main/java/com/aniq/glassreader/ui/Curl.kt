@@ -136,6 +136,8 @@ private fun clip(poly: List<Offset>, m: Offset, n: Offset, keep: Boolean): List<
 class CurlTurn(val dir: Int, val start: Offset, val end: Offset) {
     val p: Animatable<Offset, AnimationVector2D> = Animatable(start, Offset.VectorConverter)
     var completing = false
+    /** The haptic was already played (when the turn was decided), so landing stays silent. */
+    var quiet = false
 
     /** Finger moved by [dx] (and [lift] upwards). */
     suspend fun follow(dx: Float, lift: Float) { p.snapTo(Offset(start.x + dx, start.y - lift)) }

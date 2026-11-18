@@ -344,6 +344,7 @@ fun GlassCircle(
     base: Color = AppBg,
     light: Boolean = !UiMode.dark,
     glossy: Boolean = false,
+    iconScale: Float = 0.46f,
     onClick: () -> Unit,
 ) {
     Box(
@@ -355,7 +356,7 @@ fun GlassCircle(
             .then(if (glossy) Modifier.gloss(CircleShape, light) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, description, tint = tint, modifier = Modifier.size(size * 0.46f))
+        Icon(icon, description, tint = tint, modifier = Modifier.size(size * iconScale))
     }
 }
 

@@ -132,6 +132,7 @@ object Store {
             sideTools = prefs.getBoolean("sideTools", d.sideTools),
             toolsLeft = prefs.getBoolean("toolsLeft", d.toolsLeft),
             glassClarity = prefs.getFloat("glassClarity", d.glassClarity),
+            chapterThoughts = prefs.getBoolean("chapterThoughts", d.chapterThoughts),
         )
         _totalReadMs.value = prefs.getLong("totalReadMs", _books.value.sumOf { it.readMs })
         initialized = true
@@ -212,6 +213,19 @@ object Store {
             else _reviews.value + (r.bookId to r.copy(updatedAt = System.currentTimeMillis()))
         scheduleSave()
     }
+
+    /** Adds, replaces (same chapter) or, with blank [text], removes a chapter thought. */
+    fun saveChapterNote(bookId: String, chapter: String, para: Int, text: String) {
+        val cur = review(bookId) ?: Review(bookId)
+        val rest = cur.chapterNotes.filterNot { it.para == para }
+        val notes = if (text.isBlank()) rest else (rest + ChapterNote(chapter, para, text.trim())).sortedBy { it.para }
+        saveReview(cur.copy(chapterNotes = notes))
+    }
+
+    /** The reader's first-open gesture guide has been shown. */
+    var readerHintSeen: Boolean
+        get() = prefs.getBoolean("readerHintSeen", false)
+        set(v) { prefs.edit().putBoolean("readerHintSeen", v).apply() }
 
     fun rate(bookId: String, stars: Int) {
         val cur = review(bookId) ?: Review(bookId)
@@ -527,6 +541,7 @@ object Store {
             .putBoolean("haptics", s.haptics).putInt("hapticLevel", s.hapticLevel).putBoolean("volKeys", s.volumeKeys).putInt("pageAnim", s.pageAnim).putBoolean("swipe", s.swipe).putBoolean("coverAuto", s.coverScreen).putInt("uiMode", s.uiMode)
             .putBoolean("twoPageOpen", s.twoPageUnfolded).putInt("goalMin", s.dailyGoalMin)
             .putBoolean("sideTools", s.sideTools).putBoolean("toolsLeft", s.toolsLeft).putFloat("glassClarity", s.glassClarity)
+            .putBoolean("chapterThoughts", s.chapterThoughts)
             .apply()
     }
 

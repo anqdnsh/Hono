@@ -116,6 +116,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.aniq.glassreader.data.Book
 import com.aniq.glassreader.data.BookContent
+import com.aniq.glassreader.data.Chapter
 import com.aniq.glassreader.data.Highlight
 import com.aniq.glassreader.data.Para
 import com.aniq.glassreader.data.ReaderSettings
@@ -144,7 +145,7 @@ object ReaderKeys {
 }
 
 private data class Sel(val para: Int, val start: Int, val end: Int, val word: String? = null)
-private enum class Sheet { None, Chapters, Settings, Marks, Define, Note, Review }
+private enum class Sheet { None, Chapters, Settings, Marks, Define, Note, Review, Thought }
 private data class Anchor(val para: Int, val char: Int) : Comparable<Anchor> {
     override fun compareTo(other: Anchor) = if (para != other.para) para.compareTo(other.para) else char.compareTo(other.char)
 }
@@ -408,7 +409,7 @@ private fun ReaderBody(
         val cache = remember(key) { mutableStateMapOf<Int, List<Page>>() }
         val sec = sectionOf(anchor.para)
         LaunchedEffect(key, sec) {
-            for (s in listOf(sec, sec + 1, sec - 1)) {
+            for (s in listOf(sec, sec + 1, sec - 1, sec + 2)) {
                 if (s in sections.indices && cache[s] == null) {
                     cache[s] = withContext(paginationThread) { paginator.paginate(sections[s]) }
                 }
@@ -485,7 +486,7 @@ private fun ReaderBody(
             return t
         }
         fun endCurl(t: CurlTurn) {
-            if (t.completing) { curlTarget?.let { anchor = it }; haptics.play(Haptic.PageTurn) }
+            if (t.completing) { curlTarget?.let { anchor = it }; if (!t.quiet) haptics.play(Haptic.PageTurn) }
             curl = null; curlTarget = null
         }
         val beginRef by rememberUpdatedState<(Int) -> CurlTurn?>({ beginCurl(it) })
@@ -494,7 +495,8 @@ private fun ReaderBody(
         fun turn(dir: Int, fromDrag: Boolean = false) {
             if (settings.swipe) {   // volume keys in swipe mode: a full curl on its own
                 val t = beginCurl(dir) ?: return
-                    scope.launch { t.auto(); endCurl(t) }
+                haptics.play(Haptic.PageTurn); t.quiet = true
+                scope.launch { t.auto(); endCurl(t) }
                 return
             }
             pendingAnchor?.let { anchor = it; pendingAnchor = null }
@@ -595,17 +597,28 @@ private fun ReaderBody(
                             ?: return@awaitEachGesture
                         val dir = if (slop.position.x < start.x) 1 else -1
                         val t = beginRef(dir) ?: return@awaitEachGesture
-                        var last = slop.position.x; var vx = 0f
+                        // a short drag is enough: past this distance (or with a flick) the page goes over
+                        val commitAt = min(56.dp.toPx(), size.width * 0.14f)
+                        val flickSpeed = 350.dp.toPx()   // per second
+                        val tracker = VelocityTracker()
+                        tracker.addPosition(slop.uptimeMillis, slop.position)
+                        var committed = false
                         horizontalDrag(slop.id) { ch ->
                             val dx = ch.position.x - start.x; val dy = ch.position.y - start.y
                             val lift = max(0f, -dy) * 0.35f + abs(dx) * 0.10f
                             scope.launch { t.follow(dx, lift) }
-                            vx = ch.position.x - last; last = ch.position.x
+                            tracker.addPosition(ch.uptimeMillis, ch.position)
+                            // the click lands the moment the turn is decided, not when the page settles
+                            val past = -dx * dir > commitAt
+                            if (past != committed) { committed = past; if (past) haptics.play(Haptic.PageTurn) }
                             ch.consume()
                         }
-                        val fling = if (dir > 0) vx < -8f else vx > 8f
-                        val backFling = if (dir > 0) vx > 8f else vx < -8f
-                        val done = !backFling && (fling || t.fraction > 0.25f)
+                        val vx = tracker.calculateVelocity().x
+                        val fling = if (dir > 0) vx < -flickSpeed else vx > flickSpeed
+                        val backFling = if (dir > 0) vx > flickSpeed else vx < -flickSpeed
+                        val done = !backFling && (fling || committed)
+                        if (done && !committed) haptics.play(Haptic.PageTurn)
+                        t.quiet = true
                         scope.launch { t.settle(done); endRef(t) }
                     }
                 })
@@ -623,17 +636,44 @@ private fun ReaderBody(
             }
             val paper = theme.bg.copy(alpha = 1f)
             val halfDp = with(density) { (fullW / 2f).toDp() }
-            if (ct != null) {
+            if (!spread) {
+                // One page at a time. Every page, still or curling, comes from this one keyed loop, so when a
+                // turn starts the pages already laid out (the one on screen and both neighbours) are reused
+                // as they are instead of being built again: the curl starts on the first frame of the drag.
+                val pv = { ct?.p?.value }
+                // (page offset, role) in drawing order: 0 = off to the side, 1 = lying flat, 2 = curling
+                val order = when {
+                    ct == null -> listOf(-1 to 0, 1 to 0, 0 to 1)
+                    ct.dir > 0 -> listOf(-1 to 0, 1 to 1, 0 to 2)
+                    else -> listOf(1 to 0, 0 to 1, -1 to 2)
+                }
+                for ((d, role) in order) {
+                    val page = pageAt(d) ?: continue
+                    key(page.start) {
+                        Box(
+                            Modifier.fillMaxSize().then(
+                                when (role) {
+                                    0 -> Modifier.graphicsLayer { translationX = offset.value + d * fullW }
+                                    1 -> if (ct == null) Modifier.graphicsLayer { translationX = offset.value; alpha = fade.value } else Modifier
+                                    else -> Modifier.pageCurl(pv, 0f, fullW, paper, !theme.light, false)
+                                }
+                            )
+                        ) {
+                            PageView(
+                                page = page, paginator = paginator, c = c, highlights = byPara,
+                                selection = if (d == 0 && ct == null) selection else null,
+                                theme = theme,
+                                modifier = Modifier.align(Alignment.TopCenter).padding(top = topReserve).width(contentWdp),
+                                onTapHighlight = { active = it; selection = null },
+                                onSelect = { sl, isDragging -> selection = sl; dragging = isDragging; active = null; chrome = false },
+                                onLink = { target -> haptics.play(Haptic.Tick); jumpRef(target) },
+                            )
+                        }
+                    }
+                }
+            } else if (ct != null) {
                 val pv = { ct.p.value }
                 when {
-                    !spread && ct.dir > 0 -> {
-                        Sheet(pageAt(1), Modifier.fillMaxSize())
-                        Sheet(pageAt(0), Modifier.fillMaxSize().pageCurl(pv, 0f, fullW, paper, !theme.light, false))
-                    }
-                    !spread -> {
-                        Sheet(pageAt(0), Modifier.fillMaxSize())
-                        Sheet(pageAt(-1), Modifier.fillMaxSize().pageCurl(pv, 0f, fullW, paper, !theme.light, false))
-                    }
                     ct.dir > 0 -> {
                         Sheet(pageAt(0), Modifier.width(halfDp).fillMaxSize())
                         Sheet(pageAt(3), Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight())
@@ -680,7 +720,7 @@ private fun ReaderBody(
             exit = fadeOut(tween(140)) + slideOutVertically { -it },
             modifier = Modifier.align(Alignment.TopEnd).padding(end = 22.dp),
         ) {
-            Icon(Line.BookmarkFill, "Bookmarked", tint = Color(0xFFFF9F0A), modifier = Modifier.size(width = 18.dp, height = 30.dp))
+            Icon(Line.BookmarkFill, "Bookmarked", tint = Color(0xFFFF9F0A), modifier = Modifier.size(width = 24.dp, height = 40.dp))
         }
 
         // ---- quiet page furniture ----
@@ -719,7 +759,7 @@ private fun ReaderBody(
             ) {
                 GlassCircle(Line.Back, "Back", haze, tint = theme.text, glassTint = theme.glassTint, glossy = true, base = theme.bg, light = theme.light, onClick = onBack)
                 // balances the two buttons on the right, so the title sits in the true centre of the screen
-                Spacer(Modifier.width(56.dp))
+                Spacer(Modifier.width(62.dp))
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     Column(
                         Modifier
@@ -734,6 +774,7 @@ private fun ReaderBody(
                     }
                 }
                 GlassCircle(if (markHere != null) Line.BookmarkFill else Line.Bookmark, "Bookmark this page", haze,
+                    size = 52.dp, iconScale = 0.56f,
                     tint = if (markHere != null) Color(0xFFFF9F0A) else theme.text, glassTint = theme.glassTint, base = theme.bg, light = theme.light, glossy = true) { toggleBookmark() }
                 Spacer(Modifier.width(10.dp))
                 GlassCircle(Line.Quote, "Highlights and bookmarks", haze, tint = theme.text, glassTint = theme.glassTint, glossy = true, base = theme.bg, light = theme.light) { sheet = Sheet.Marks }
@@ -845,6 +886,39 @@ private fun ReaderBody(
                 onWriteReview = { sheet = Sheet.Review })
         }
 
+        // ---- chapter thoughts (optional, off by default) ----
+        // Reading straight on from one chapter into the next offers a small card to jot a thought about the
+        // one just finished. Turning the page again simply lets it go.
+        var thoughtFor by remember { mutableStateOf<Chapter?>(null) }
+        var writingFor by remember { mutableStateOf<Chapter?>(null) }
+        var lastChapter by remember { mutableStateOf(c.chapterAt(anchor.para)) }
+        LaunchedEffect(anchor) {
+            val now = c.chapterAt(anchor.para)
+            val prev = lastChapter
+            lastChapter = now
+            thoughtFor = null
+            if (!settings.chapterThoughts || now == null || prev == null || now === prev) return@LaunchedEffect
+            val i = c.chapters.indexOf(prev)
+            if (i < 0 || c.chapters.getOrNull(i + 1) !== now) return@LaunchedEffect   // a jump, not reading on
+            if (anchor.para - now.para > 2 || now.para >= storyEnd) return@LaunchedEffect
+            if (now.para - prev.para < 6) return@LaunchedEffect                     // tiny sections (epigraphs, part titles)
+            if (Store.review(book.id)?.chapterNotes?.any { it.para == prev.para } == true) return@LaunchedEffect
+            delay(300)
+            thoughtFor = prev
+        }
+        AnimatedVisibility(
+            visible = thoughtFor != null && !atEnd && selection == null && sheet == Sheet.None && !chrome,
+            enter = slideInVertically(spring(0.8f, 420f)) { it / 2 } + fadeIn(tween(200)) + scaleIn(spring(0.8f, 420f), initialScale = 0.94f),
+            exit = slideOutVertically(spring(0.95f, 600f)) { it / 2 } + fadeOut(tween(150)),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(start = 14.dp, end = 14.dp, bottom = bottomInset + 18.dp),
+        ) {
+            var shown by remember { mutableStateOf<Chapter?>(null) }
+            thoughtFor?.let { shown = it }
+            ChapterThoughtCard(shown?.title.orEmpty(), theme, haze,
+                onSkip = { thoughtFor = null },
+                onWrite = { writingFor = shown; thoughtFor = null; sheet = Sheet.Thought })
+        }
+
         // ---- sheets ----
         GlassSheet(sheet != Sheet.None, haze, theme, bottomInset, onDismiss = { sheet = Sheet.None }) {
             var lastSheet by remember { mutableStateOf(Sheet.Chapters) }
@@ -864,6 +938,15 @@ private fun ReaderBody(
                 }
                 Sheet.Review -> androidx.compose.runtime.key(book.id) {
                     ReviewEditor(book.id, theme.text, theme.sub) { sheet = Sheet.None; endDismissed = true; toast = "Review saved" }
+                }
+                Sheet.Thought -> writingFor?.let { ch ->
+                    androidx.compose.runtime.key(ch.para) {
+                        NoteEditor(ch.title, Store.review(book.id)?.chapterNotes?.firstOrNull { it.para == ch.para }?.text.orEmpty(),
+                            theme.text, theme.sub, title = "Chapter thought", hint = "What stayed with you from this chapter?") { t ->
+                            Store.saveChapterNote(book.id, ch.title, ch.para, t)
+                            sheet = Sheet.None; toast = if (t.isBlank()) "Thought removed" else "Saved with your review"
+                        }
+                    }
                 }
                 Sheet.None -> {}
             }
@@ -887,6 +970,17 @@ private fun ReaderBody(
                     .depthShadow(RoundedCornerShape(50), theme.light).glass(haze, RoundedCornerShape(50), theme.glassTint, theme.bg, light = theme.light, floating = true).gloss(RoundedCornerShape(50), theme.light)
                     .padding(horizontal = 18.dp, vertical = 10.dp),
             )
+        }
+
+        // ---- first time in a book: how the gestures work ----
+        var hint by remember { mutableStateOf(!Store.readerHintSeen) }
+        AnimatedVisibility(
+            visible = hint,
+            enter = fadeIn(tween(260, delayMillis = 350)),
+            exit = fadeOut(tween(180)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            ReaderHint(theme, haze, settings.swipe, settings.volumeKeys) { Store.readerHintSeen = true; hint = false }
         }
     }
 }
@@ -1308,4 +1402,87 @@ internal fun LabeledSlider(
         Text(value, color = theme.sub, fontFamily = Inter, fontSize = 13.sp)
     }
     ThinSlider(value = v, onChange = onChange, range = range, fg = theme.text)
+}
+
+
+// ---------------- Chapter thought card ----------------
+
+/** "End of …  · Skip · Add a thought": small, sits over the first page of the next chapter. */
+@Composable
+private fun ChapterThoughtCard(chapter: String, theme: ReaderTheme, haze: dev.chrisbanes.haze.HazeState, onSkip: () -> Unit, onWrite: () -> Unit) {
+    Row(
+        Modifier
+            .widthIn(max = 460.dp)
+            .fillMaxWidth()
+            .depthShadow(RoundedCornerShape(26.dp), theme.light)
+            .glass(haze, RoundedCornerShape(26.dp), theme.glassTint, theme.bg, light = theme.light, floating = true)
+            .gloss(RoundedCornerShape(26.dp), theme.light)
+            .clickable(remember { MutableInteractionSource() }, null) {}
+            .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("End of chapter", color = theme.sub, fontFamily = Inter, fontSize = 11.sp)
+            Text(chapter, color = theme.text, fontFamily = Inter, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text("Skip", color = theme.sub, fontFamily = Inter, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+            modifier = Modifier.bouncyClick(pressedScale = 0.9f, haptic = Haptic.Tick, onClick = onSkip).padding(horizontal = 12.dp, vertical = 10.dp))
+        Text("Add a thought", color = theme.bg.copy(alpha = 1f), fontFamily = Inter, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.bouncyClick(pressedScale = 0.93f, onClick = onWrite)
+                .clip(RoundedCornerShape(50)).background(theme.text).padding(horizontal = 14.dp, vertical = 10.dp))
+    }
+}
+
+// ---------------- First-open gesture guide ----------------
+
+@Composable
+private fun ReaderHint(theme: ReaderTheme, haze: dev.chrisbanes.haze.HazeState, swipe: Boolean, volumeKeys: Boolean, onDone: () -> Unit) {
+    Box(
+        Modifier.fillMaxSize()
+            .background(Color.Black.copy(alpha = if (theme.light) 0.28f else 0.45f))
+            .clickable(remember { MutableInteractionSource() }, null) {},
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier
+                .padding(horizontal = 24.dp)
+                .widthIn(max = 400.dp)
+                .fillMaxWidth()
+                .depthShadow(RoundedCornerShape(30.dp), theme.light)
+                .glass(haze, RoundedCornerShape(30.dp), theme.glassTint, theme.bg, blur = 30.dp, light = theme.light, floating = true)
+                .gloss(RoundedCornerShape(30.dp), theme.light)
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+        ) {
+            Text("Reading in Hono", color = theme.text, fontFamily = Inter, fontSize = 19.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp)
+            Spacer(Modifier.height(14.dp))
+            @Composable
+            fun Tip(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, body: String) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(36.dp).clip(CircleShape).background(theme.text.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
+                        Icon(icon, null, tint = theme.text, modifier = Modifier.size(18.dp))
+                    }
+                    Column(Modifier.padding(start = 12.dp)) {
+                        Text(title, color = theme.text, fontFamily = Inter, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text(body, color = theme.sub, fontFamily = Inter, fontSize = 13.sp, lineHeight = 17.sp)
+                    }
+                }
+            }
+            Tip(Line.Page, if (swipe) "Swipe to turn" else "Tap the edges",
+                if (swipe) "Swipe left for the next page, right to go back. A short swipe is enough."
+                else "Right edge for the next page, left edge to go back.")
+            Tip(Line.Sliders, "Tap the middle", "Shows the controls: chapters, text size and the bookmark.")
+            Tip(Line.Marker, "Hold a word", "Highlights it. Keep dragging to take in more.")
+            if (volumeKeys) Tip(Line.Phone, "Volume keys", "Down for next, up for previous.")
+            Spacer(Modifier.height(14.dp))
+            Text(
+                "Got it", color = theme.bg.copy(alpha = 1f), fontFamily = Inter, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().bouncyClick(pressedScale = 0.96f, haptic = Haptic.Confirm, onClick = onDone)
+                    .clip(RoundedCornerShape(50)).background(theme.text).padding(vertical = 13.dp),
+            )
+            Text("You can show this again in Settings › Text and page.", color = theme.sub, fontFamily = Inter, fontSize = 11.sp,
+                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+        }
+    }
 }

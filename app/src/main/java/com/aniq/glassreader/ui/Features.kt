@@ -136,17 +136,21 @@ fun DefineContent(word: String, fg: Color, sub: Color) {
 // ---------------- Notes ----------------
 
 @Composable
-fun NoteEditor(quote: String, initial: String, fg: Color, sub: Color, onSave: (String) -> Unit) {
+fun NoteEditor(
+    quote: String, initial: String, fg: Color, sub: Color,
+    title: String = "Note", hint: String = "What does this make you think?",
+    onSave: (String) -> Unit,
+) {
     var text by remember { mutableStateOf(initial) }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 6.dp)) {
-        Text("Note", color = fg, fontFamily = Inter, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp)
+        Text(title, color = fg, fontFamily = Inter, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp)
         if (quote.isNotBlank()) Text(quote.trim(), color = sub, fontFamily = Inter, fontSize = 13.sp, lineHeight = 18.sp, maxLines = 3,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
         Spacer(Modifier.height(12.dp))
         Box(Modifier.fillMaxWidth().heightIn(min = 110.dp).clip(RoundedCornerShape(18.dp)).background(fg.copy(alpha = 0.06f)).padding(14.dp)) {
-            if (text.isEmpty()) Text("What does this make you think?", color = sub, fontFamily = Inter, fontSize = 16.sp)
+            if (text.isEmpty()) Text(hint, color = sub, fontFamily = Inter, fontSize = 16.sp)
             BasicTextField(
                 text, { text = it },
                 textStyle = TextStyle(color = fg, fontFamily = Inter, fontSize = 16.sp, lineHeight = 22.sp),

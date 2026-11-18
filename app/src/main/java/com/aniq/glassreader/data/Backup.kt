@@ -306,7 +306,11 @@ object Backup {
         for (r in inReviews) {
             val bid = idMap[r.bookId] ?: continue
             val cur = reviews[bid]
-            if (cur == null || r.updatedAt > cur.updatedAt) reviews[bid] = r.copy(bookId = bid)
+            // chapter thoughts from both phones are kept (the newer one wins for the same chapter)
+            val notes = ((cur?.chapterNotes ?: emptyList()) + r.chapterNotes)
+                .groupBy { it.para }.values.map { same -> same.maxBy { it.at } }.sortedBy { it.para }
+            reviews[bid] = if (cur == null || r.updatedAt > cur.updatedAt) r.copy(bookId = bid, chapterNotes = notes)
+                else cur.copy(chapterNotes = notes)
         }
         Store.writeAtomic("library.json", JSONArray().apply { books.forEach { put(it.toJson()) } }.toString())
         Store.writeAtomic("highlights.json", JSONArray().apply { hl.forEach { put(it.toJson()) } }.toString())
