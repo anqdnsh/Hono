@@ -189,6 +189,11 @@ fun SettingsScreen(haze: HazeState, onPickWallpaper: () -> Unit, onExport: (Expo
                     }
                     Line()
                     Pad { ToggleRow("Volume keys turn pages", "Down for next, up for previous", s.volumeKeys, UiTheme) { v -> set { it.copy(volumeKeys = v) } } }
+                    Line()
+                    Pad { ToggleRow("Chapter thoughts", "A small card at the end of each chapter to jot a thought. Saved with your review.", s.chapterThoughts, UiTheme) { v -> set { it.copy(chapterThoughts = v) } } }
+                    Line()
+                    var guide by remember { mutableStateOf(!com.aniq.glassreader.data.Store.readerHintSeen) }
+                    Pad { ToggleRow("Gesture guide", "Show the reading tips next time you open a book", guide, UiTheme) { v -> com.aniq.glassreader.data.Store.readerHintSeen = !v; guide = v } }
                 }
             }
 

@@ -13,6 +13,8 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -317,6 +319,17 @@ fun ReviewEditor(bookId: String, fg: Color = Primary, sub: Color = Secondary, on
                 modifier = Modifier.fillMaxWidth().heightIn(min = 62.dp, max = 200.dp),
             )
         }
+        if (start.chapterNotes.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Text("Chapter thoughts", color = sub, fontFamily = Inter, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Column(Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState())) {
+                start.chapterNotes.forEach { cn ->
+                    Text(cn.chapter, color = fg, fontFamily = Inter, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp))
+                    NoteLine(cn.text, fg, maxLines = 6, modifier = Modifier.padding(top = 0.dp))
+                }
+            }
+        }
         Spacer(Modifier.height(14.dp))
         Text(
             "Save review", color = if (fg.red > 0.5f) Color.Black else Color.White, fontFamily = Inter, fontSize = 15.sp,
@@ -325,7 +338,9 @@ fun ReviewEditor(bookId: String, fg: Color = Primary, sub: Color = Secondary, on
             modifier = Modifier.fillMaxWidth()
                 .bouncyClick(pressedScale = 0.96f, haptic = null) {
                     haptics.play(Haptic.Confirm)
-                    Store.saveReview(Review(bookId, rating, ReviewTags.filter { it in tags }, text.trim()))
+                    // keep any chapter thoughts written while reading
+                    val notes = Store.review(bookId)?.chapterNotes ?: emptyList()
+                    Store.saveReview(Review(bookId, rating, ReviewTags.filter { it in tags }, text.trim(), chapterNotes = notes))
                     onDone()
                 }
                 .clip(RoundedCornerShape(50)).background(fg)

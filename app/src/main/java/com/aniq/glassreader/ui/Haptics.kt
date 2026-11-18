@@ -57,28 +57,38 @@ class Haptics(private val view: View) {
         }
     }
 
-    fun play(h: Haptic) {
-        val s = Store.settings.value
-        if (!s.haptics) return
-        val k = when (s.hapticLevel) { 0 -> 0.45f; 1 -> 0.72f; else -> 1f }
-        val v = vibrator
-        try {
-            if (v != null && primitives) {
-                val comp = VibrationEffect.startComposition()
+    // Effects are built once and reused, so a page turn goes straight to the motor
+    // without composing a new vibration on the touch thread every time.
+    private val built = HashMap<Int, VibrationEffect>()
+    private fun effect(h: Haptic, level: Int): VibrationEffect? {
+        val key = h.ordinal * 4 + level
+        built[key]?.let { return it }
+        val v = vibrator ?: return null
+        val k = when (level) { 0 -> 0.45f; 1 -> 0.72f; else -> 1f }
+        val e = when {
+            primitives -> VibrationEffect.startComposition().also { comp ->
                 pattern(h).forEach { comp.addPrimitive(it.id, (it.scale * k).coerceIn(0f, 1f), it.delay) }
-                vibrate(v, comp.compose())
-                return
-            }
-            if (v != null && v.hasVibrator()) {
-                val e = when (h) {
+            }.compose()
+            v.hasVibrator() -> VibrationEffect.createPredefined(
+                when (h) {
                     Haptic.Tick, Haptic.TextMove, Haptic.GestureStart, Haptic.GestureEnd, Haptic.ToggleOff -> VibrationEffect.EFFECT_TICK
                     Haptic.LongPress, Haptic.Reject, Haptic.Threshold -> VibrationEffect.EFFECT_HEAVY_CLICK
                     Haptic.Confirm -> VibrationEffect.EFFECT_DOUBLE_CLICK
                     else -> VibrationEffect.EFFECT_CLICK
                 }
-                vibrate(v, VibrationEffect.createPredefined(e))
-                return
-            }
+            )
+            else -> return null
+        }
+        built[key] = e
+        return e
+    }
+
+    fun play(h: Haptic) {
+        val s = Store.settings.value
+        if (!s.haptics) return
+        try {
+            val e = effect(h, s.hapticLevel.coerceIn(0, 2))
+            if (e != null) { vibrate(vibrator!!, e); return }
         } catch (_: Exception) { }
         view.performHapticFeedback(
             when (h) {
@@ -90,8 +100,10 @@ class Haptics(private val view: View) {
         )
     }
 
+    private val touch = if (Build.VERSION.SDK_INT >= 33) VibrationAttributes.createForUsage(VibrationAttributes.USAGE_TOUCH) else null
+
     private fun vibrate(v: Vibrator, e: VibrationEffect) {
-        if (Build.VERSION.SDK_INT >= 33) v.vibrate(e, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_TOUCH))
+        if (Build.VERSION.SDK_INT >= 33) v.vibrate(e, touch!!)
         else v.vibrate(e)
     }
 }

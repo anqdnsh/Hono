@@ -82,12 +82,14 @@ data class Review(
     val tags: List<String> = emptyList(),
     val text: String = "",
     val updatedAt: Long = System.currentTimeMillis(),
+    val chapterNotes: List<ChapterNote> = emptyList(),
 ) {
-    val isEmpty get() = rating == 0 && tags.isEmpty() && text.isBlank()
+    val isEmpty get() = rating == 0 && tags.isEmpty() && text.isBlank() && chapterNotes.isEmpty()
 
     fun toJson() = JSONObject().apply {
         put("book", bookId); put("rating", rating); put("text", text); put("at", updatedAt)
         put("tags", JSONArray().apply { tags.forEach { put(it) } })
+        if (chapterNotes.isNotEmpty()) put("chapters", JSONArray().apply { chapterNotes.forEach { put(it.toJson()) } })
     }
 
     companion object {
@@ -97,7 +99,22 @@ data class Review(
             tags = o.optJSONArray("tags")?.let { a -> List(a.length()) { a.getString(it) } } ?: emptyList(),
             text = o.optString("text", ""),
             updatedAt = o.optLong("at", 0L),
+            chapterNotes = o.optJSONArray("chapters")?.let { a -> List(a.length()) { ChapterNote.fromJson(a.getJSONObject(it)) } } ?: emptyList(),
         )
+    }
+}
+
+/** A thought written at the end of a chapter; these build up into the book's review. */
+data class ChapterNote(
+    val chapter: String,
+    val para: Int,               // where the chapter starts, so notes sort in reading order
+    val text: String,
+    val at: Long = System.currentTimeMillis(),
+) {
+    fun toJson() = JSONObject().apply { put("title", chapter); put("para", para); put("text", text); put("at", at) }
+
+    companion object {
+        fun fromJson(o: JSONObject) = ChapterNote(o.optString("title", ""), o.optInt("para", 0), o.optString("text", ""), o.optLong("at", 0L))
     }
 }
 
@@ -198,7 +215,8 @@ data class ReaderSettings(
     val dailyGoalMin: Int = 20,
     val sideTools: Boolean = false,  // highlight tools as glass circles at the side instead of a bottom bar
     val toolsLeft: Boolean = false,  // which side, for left-handed reading
-    val glassClarity: Float = 0.85f,  // 0 frosted .. 1 clear, for the side circles
+    val glassClarity: Float = 0.85f,
+    val chapterThoughts: Boolean = false, // a small "thought on this chapter?" card when a chapter ends  // 0 frosted .. 1 clear, for the side circles
 )
 
 /** Para styles are packed triples: start, end, type (1 = italic, 2 = bold). */
