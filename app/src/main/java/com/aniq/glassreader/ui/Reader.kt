@@ -471,16 +471,22 @@ private fun ReaderBody(
         val fullH = constraints.maxHeight.toFloat()
         val halfW = fullW / 2f
         /** Starts a turn if there's a page that way; null if not (or one is already moving). */
-        fun beginCurl(dir: Int): CurlTurn? {
+        /** [grabY]: where on the edge the finger went down; corners peel, the middle turns straight. */
+        fun beginCurl(dir: Int, grabY: Float = fullH): CurlTurn? {
             if (curl != null) return null
             val target = neighbour(dir)
             if (target == null || (spread && dir < 0 && pageAt(-2) == null)) { haptics.play(Haptic.Reject); return null }
             clearTransient(); chrome = false
+            val (y, lean) = when {
+                grabY < fullH * 0.16f -> 0f to 1
+                grabY > fullH * 0.84f -> fullH to -1
+                else -> grabY.coerceIn(0f, fullH) to 0
+            }
             val t = when {
-                !spread && dir > 0 -> CurlTurn(1, Offset(fullW, fullH), Offset(-fullW, fullH))
-                !spread -> CurlTurn(-1, Offset(-fullW, fullH), Offset(fullW, fullH))
-                dir > 0 -> CurlTurn(1, Offset(halfW, fullH), Offset(-halfW, fullH))
-                else -> CurlTurn(-1, Offset(0f, fullH), Offset(fullW, fullH))
+                !spread && dir > 0 -> CurlTurn(1, Offset(fullW, y), Offset(-fullW, y), lean)
+                !spread -> CurlTurn(-1, Offset(-fullW, y), Offset(fullW, y), lean)
+                dir > 0 -> CurlTurn(1, Offset(halfW, y), Offset(-halfW, y), lean)
+                else -> CurlTurn(-1, Offset(0f, y), Offset(fullW, y), lean)
             }
             curlTarget = target.start; curl = t
             return t
@@ -489,7 +495,7 @@ private fun ReaderBody(
             if (t.completing) { curlTarget?.let { anchor = it }; if (!t.quiet) haptics.play(Haptic.PageTurn) }
             curl = null; curlTarget = null
         }
-        val beginRef by rememberUpdatedState<(Int) -> CurlTurn?>({ beginCurl(it) })
+        val beginRef by rememberUpdatedState<(Int, Float) -> CurlTurn?>({ d, y -> beginCurl(d, y) })
         val endRef by rememberUpdatedState<(CurlTurn) -> Unit>({ endCurl(it) })
 
         fun turn(dir: Int, fromDrag: Boolean = false) {
@@ -596,7 +602,7 @@ private fun ReaderBody(
                         val slop = awaitHorizontalTouchSlopOrCancellation(down.id) { ch, _ -> ch.consume() }
                             ?: return@awaitEachGesture
                         val dir = if (slop.position.x < start.x) 1 else -1
-                        val t = beginRef(dir) ?: return@awaitEachGesture
+                        val t = beginRef(dir, start.y) ?: return@awaitEachGesture
                         // a short drag is enough: past this distance (or with a flick) the page goes over
                         val commitAt = min(56.dp.toPx(), size.width * 0.14f)
                         val flickSpeed = 350.dp.toPx()   // per second
@@ -605,8 +611,7 @@ private fun ReaderBody(
                         var committed = false
                         horizontalDrag(slop.id) { ch ->
                             val dx = ch.position.x - start.x; val dy = ch.position.y - start.y
-                            val lift = max(0f, -dy) * 0.35f + abs(dx) * 0.10f
-                            scope.launch { t.follow(dx, lift) }
+                            scope.launch { t.follow(dx, dy) }
                             tracker.addPosition(ch.uptimeMillis, ch.position)
                             // the click lands the moment the turn is decided, not when the page settles
                             val past = -dx * dir > commitAt
@@ -641,6 +646,7 @@ private fun ReaderBody(
                 // turn starts the pages already laid out (the one on screen and both neighbours) are reused
                 // as they are instead of being built again: the curl starts on the first frame of the drag.
                 val pv = { ct?.p?.value }
+                val oy = { ct?.start?.y ?: Float.NaN }
                 // (page offset, role) in drawing order: 0 = off to the side, 1 = lying flat, 2 = curling
                 val order = when {
                     ct == null -> listOf(-1 to 0, 1 to 0, 0 to 1)
@@ -655,7 +661,7 @@ private fun ReaderBody(
                                 when (role) {
                                     0 -> Modifier.graphicsLayer { translationX = offset.value + d * fullW }
                                     1 -> if (ct == null) Modifier.graphicsLayer { translationX = offset.value; alpha = fade.value } else Modifier
-                                    else -> Modifier.pageCurl(pv, 0f, fullW, paper, !theme.light, false)
+                                    else -> Modifier.pageCurl(pv, 0f, fullW, paper, !theme.light, false, oy)
                                 }
                             )
                         ) {
@@ -673,11 +679,12 @@ private fun ReaderBody(
                 }
             } else if (ct != null) {
                 val pv = { ct.p.value }
+                val oy = { ct.start.y }
                 when {
                     ct.dir > 0 -> {
                         Sheet(pageAt(0), Modifier.width(halfDp).fillMaxSize())
                         Sheet(pageAt(3), Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight())
-                        Box(Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight().pageCurl(pv, 0f, halfW, paper, !theme.light, true)) {
+                        Box(Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight().pageCurl(pv, 0f, halfW, paper, !theme.light, true, oy)) {
                             Sheet(pageAt(1), Modifier.fillMaxSize())
                             Sheet(pageAt(2), Modifier.offset(x = -halfDp).width(halfDp).fillMaxHeight())
                         }
@@ -685,7 +692,7 @@ private fun ReaderBody(
                     else -> {
                         Sheet(pageAt(1), Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight())
                         Sheet(pageAt(-2), Modifier.width(halfDp).fillMaxHeight())
-                        Box(Modifier.width(halfDp).fillMaxHeight().pageCurl(pv, halfW, 0f, paper, !theme.light, true)) {
+                        Box(Modifier.width(halfDp).fillMaxHeight().pageCurl(pv, halfW, 0f, paper, !theme.light, true, oy)) {
                             Sheet(pageAt(0), Modifier.fillMaxSize())
                             Sheet(pageAt(-1), Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight())
                         }
