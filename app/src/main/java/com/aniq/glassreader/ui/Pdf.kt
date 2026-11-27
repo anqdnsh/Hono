@@ -552,16 +552,22 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
         var curl by remember { mutableStateOf<CurlTurn?>(null) }
         var curlTarget by remember { mutableIntStateOf(-1) }
         val fullH = constraints.maxHeight.toFloat()
-        fun beginCurl(dir: Int): CurlTurn? {
+        /** [grabY]: where on the edge the finger went down; corners peel, the middle turns straight. */
+        fun beginCurl(dir: Int, grabY: Float = fullH): CurlTurn? {
             if (curl != null) return null
             val target = page + dir * step
             if (target !in 0 until count || (spread && dir < 0 && page - 2 < 0)) { haptics.play(Haptic.Reject); return null }
             clearTransient(); chrome = false
+            val (y, lean) = when {
+                grabY < fullH * 0.16f -> 0f to 1
+                grabY > fullH * 0.84f -> fullH to -1
+                else -> grabY.coerceIn(0f, fullH) to 0
+            }
             val t = when {
-                !spread && dir > 0 -> CurlTurn(1, Offset(fullW, fullH), Offset(-fullW, fullH))
-                !spread -> CurlTurn(-1, Offset(-fullW, fullH), Offset(fullW, fullH))
-                dir > 0 -> CurlTurn(1, Offset(slotW, fullH), Offset(-slotW, fullH))
-                else -> CurlTurn(-1, Offset(0f, fullH), Offset(fullW, fullH))
+                !spread && dir > 0 -> CurlTurn(1, Offset(fullW, y), Offset(-fullW, y), lean)
+                !spread -> CurlTurn(-1, Offset(-fullW, y), Offset(fullW, y), lean)
+                dir > 0 -> CurlTurn(1, Offset(slotW, y), Offset(-slotW, y), lean)
+                else -> CurlTurn(-1, Offset(0f, y), Offset(fullW, y), lean)
             }
             curlTarget = target; curl = t
             return t
@@ -570,7 +576,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             if (t.completing && curlTarget >= 0) { page = curlTarget; haptics.play(Haptic.PageTurn) }
             curl = null; curlTarget = -1
         }
-        val beginRef by rememberUpdatedState<(Int) -> CurlTurn?>({ beginCurl(it) })
+        val beginRef by rememberUpdatedState<(Int, Float) -> CurlTurn?>({ d, y -> beginCurl(d, y) })
         val endRef by rememberUpdatedState<(CurlTurn) -> Unit>({ endCurl(it) })
         swipeTurn = { d -> beginCurl(d)?.let { t -> scope.launch { t.auto(); endCurl(t) } } }
 
@@ -587,12 +593,11 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                         val slop = awaitHorizontalTouchSlopOrCancellation(down.id) { ch, _ -> ch.consume() }
                             ?: return@awaitEachGesture
                         val dir = if (slop.position.x < start.x) 1 else -1
-                        val t = beginRef(dir) ?: return@awaitEachGesture
+                        val t = beginRef(dir, start.y) ?: return@awaitEachGesture
                         var last = slop.position.x; var vx = 0f
                         horizontalDrag(slop.id) { ch ->
                             val dx = ch.position.x - start.x; val dy = ch.position.y - start.y
-                            val lift = max(0f, -dy) * 0.35f + kotlin.math.abs(dx) * 0.10f
-                            scope.launch { t.follow(dx, lift) }
+                            scope.launch { t.follow(dx, dy) }
                             vx = ch.position.x - last; last = ch.position.x
                             ch.consume()
                         }
@@ -697,19 +702,20 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
             val halfDp = with(density) { (fullW / 2f).toDp() }
             if (ct != null) {
                 val pv = { ct.p.value }
+                val oy = { ct.start.y }
                 when {
                     !spread && ct.dir > 0 -> {
                         PdfSheet(page + 1, 0f, Modifier.fillMaxSize())
-                        PdfSheet(page, 0f, Modifier.fillMaxSize().pageCurl(pv, 0f, fullW, paper, !theme.light, false))
+                        PdfSheet(page, 0f, Modifier.fillMaxSize().pageCurl(pv, 0f, fullW, paper, !theme.light, false, oy))
                     }
                     !spread -> {
                         PdfSheet(page, 0f, Modifier.fillMaxSize())
-                        PdfSheet(page - 1, 0f, Modifier.fillMaxSize().pageCurl(pv, 0f, fullW, paper, !theme.light, false))
+                        PdfSheet(page - 1, 0f, Modifier.fillMaxSize().pageCurl(pv, 0f, fullW, paper, !theme.light, false, oy))
                     }
                     ct.dir > 0 -> {
                         PdfSheet(page, 1f, Modifier.width(halfDp).fillMaxHeight())
                         PdfSheet(page + 3, -1f, Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight())
-                        Box(Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight().pageCurl(pv, 0f, slotW, paper, !theme.light, true)) {
+                        Box(Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight().pageCurl(pv, 0f, slotW, paper, !theme.light, true, oy)) {
                             PdfSheet(page + 1, -1f, Modifier.fillMaxSize())
                             PdfSheet(page + 2, 1f, Modifier.offset(x = -halfDp).width(halfDp).fillMaxHeight())
                         }
@@ -717,7 +723,7 @@ fun PdfReader(book: Book, jumpPage: Int?, settings: ReaderSettings, theme: Reade
                     else -> {
                         PdfSheet(page + 1, -1f, Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight())
                         PdfSheet(page - 2, 1f, Modifier.width(halfDp).fillMaxHeight())
-                        Box(Modifier.width(halfDp).fillMaxHeight().pageCurl(pv, slotW, 0f, paper, !theme.light, true)) {
+                        Box(Modifier.width(halfDp).fillMaxHeight().pageCurl(pv, slotW, 0f, paper, !theme.light, true, oy)) {
                             PdfSheet(page, 1f, Modifier.fillMaxSize())
                             PdfSheet(page - 1, -1f, Modifier.offset(x = halfDp).width(halfDp).fillMaxHeight())
                         }
